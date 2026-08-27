@@ -68,7 +68,7 @@ Run the existing frontend:
 
 ```bash
 cd Bridge
-npm install
+npm ci
 npm run dev
 ```
 
@@ -79,6 +79,8 @@ cd Bridge
 npm run lint
 npm run build
 ```
+
+When the Node/Express server is added, it will have its own `package.json` and lockfile. Teammates will then run `npm ci` from that server directory as well; Express and the Gemini SDK will be installed from the lockfile automatically.
 
 When the server is added, copy `.env.example` to `.env` and add your own key. Never put a real key in a `VITE_*` variable because Vite exposes those values to the browser bundle.
 
