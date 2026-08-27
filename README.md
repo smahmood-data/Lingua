@@ -28,7 +28,7 @@ Misunderstanding detection is a stretch goal. Authentication, a database, call i
 
 ## Current status
 
-The repository currently contains a React + TypeScript + Vite starter in [`Bridge/`](./Bridge). The live audio flow, Gemini integration, server, and Lingua UI are not implemented yet. The directory keeps its earlier project name for now so the team can avoid a disruptive rename during the hackathon.
+The repository contains a React + TypeScript + Vite client in [`Bridge/`](./Bridge). The Urdu → English live audio pipeline (microphone capture, PCM conversion, Gemini Live transport, streamed playback, and transcript events) is implemented behind the `useTranslationSession` hook and is documented in the [frontend README](./Bridge/README.md). It cannot run end to end until the server serves `GET /api/live-token`. The Node/Express server, the reverse translation direction, and the Lingua UI are not implemented yet. The directory keeps its earlier project name for now so the team can avoid a disruptive rename during the hackathon.
 
 ## Planned architecture
 
