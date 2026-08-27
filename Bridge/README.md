@@ -29,9 +29,9 @@ npm run build
 
 Do not put Gemini credentials in frontend code or in a `VITE_*` variable. The backend dependencies are installed with `npm ci` from `../backend`, and its key remains server-side.
 
-## Live translation (issue #2)
+## Live translation (issues #2 and #3)
 
-The Urdu → English audio pipeline lives in [`src/lib/translation/`](./src/lib/translation)
+The shared Urdu ↔ English audio pipeline lives in [`src/lib/translation/`](./src/lib/translation)
 and is consumed through the `useTranslationSession` hook:
 
 ```tsx
@@ -39,7 +39,7 @@ import { useTranslationSession } from './hooks/useTranslationSession'
 
 const {
   state, error, transcript, interimTranscript,
-  isActive, start, stop, clearTranscript,
+  isActive, start, setDirection, stop, clearTranscript,
 } = useTranslationSession()
 ```
 
@@ -55,6 +55,7 @@ const {
   partial caption while someone is still speaking. It is replaced as they talk
   and cleared once the finalised turn for that speech arrives. Render it as a
   live caption line, not as transcript history.
+- `setDirection()` stops an active session before selecting the reverse direction.
 - `start()` and `stop()` are idempotent. Repeated calls cannot open a second
   microphone or a second Live session, and a session can always be restarted
   after stopping or failing without reloading the page.
@@ -75,7 +76,7 @@ variable.
 wire shape. It consumes the merged issue #1 contract:
 
 ```
-GET /api/live-token?direction=ur-to-en
+GET /api/live-token?direction=ur-to-en | en-to-ur
 -> { token, expiresAt, newSessionExpiresAt, model, direction }
 ```
 
@@ -108,8 +109,11 @@ audio is not picked up by the microphone again.
 
 1. Start `../backend` with a valid `GEMINI_API_KEY`, then run `npm run dev` here.
 2. Open `/?live=1` and select **Start session**.
-3. Grant microphone access and speak a short Urdu phrase.
-4. Confirm English audio plays and transcript lines appear.
-5. Select **Stop session** and confirm the browser microphone indicator clears.
-6. Start again and confirm it works without reloading.
+3. Grant microphone access and speak a short Urdu phrase; confirm English audio
+   plays and Urdu/English transcript lines appear.
+4. Select **English → Urdu** while active and confirm the session stops and the
+   browser microphone indicator clears.
+5. Start again, speak a short English phrase, and confirm Urdu audio and
+   English/Urdu transcript lines appear.
+6. Stop and start again to confirm retry works without reloading.
 7. Block microphone access and confirm a recoverable error is shown.

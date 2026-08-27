@@ -7,7 +7,7 @@
  * should import from `src/lib/translation` rather than individual modules.
  */
 
-/** Shared API direction contract. Issue #2 ships `ur-to-en`; #3 owns the toggle. */
+/** Shared API direction contract used by both live translation directions. */
 import type { TranslationDirection } from '../../types'
 export type { TranslationDirection }
 
