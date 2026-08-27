@@ -356,4 +356,33 @@ describe('TranslationSession startup ownership', () => {
     await controller.stop()
     expect(activeConnections).toBe(0)
   })
+
+  it('opens both live directions for a two-way conversation', async () => {
+    const connectedDirections: string[] = []
+    const tokenDirections: string[] = []
+    const tokenProvider = vi.fn(async ({ direction }: { direction: string }) => {
+      tokenDirections.push(direction)
+      return {
+        token: 'auth_tokens/test-ephemeral-token',
+        model: 'test-live-model',
+      }
+    })
+
+    dependencies.startMicrophoneCapture.mockImplementation(async () => capture())
+    dependencies.connectLiveTransport.mockImplementation(
+      (options: LiveTransportOptions) => {
+        connectedDirections.push(options.direction)
+        return Promise.resolve(transport())
+      },
+    )
+
+    const controller = new TranslationSession({ tokenProvider })
+    await controller.startConversation('es')
+
+    expect(tokenDirections.sort()).toEqual(['en-to-es', 'es-to-en'])
+    expect(connectedDirections.sort()).toEqual(['en-to-es', 'es-to-en'])
+    expect(controller.getSnapshot().state).toBe('listening')
+
+    await controller.stop()
+  })
 })

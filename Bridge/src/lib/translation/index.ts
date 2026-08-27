@@ -18,13 +18,14 @@ export type {
   SessionState,
   TranscriptKind,
   TranscriptTurn,
+  PartnerLanguage,
   TranslationDirection,
   TranslationSessionSnapshot,
 } from './types'
 
 export { canStart, isSessionActive } from './sessionMachine'
 export { SESSION_ERROR_CODES } from './errors'
-export { languagesForDirection } from './config'
+export { conversationDirections, languagesForDirection } from './config'
 
 export {
   createLiveTokenProvider,

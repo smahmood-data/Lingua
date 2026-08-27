@@ -1,16 +1,22 @@
-import type { AppStatus, ControlId, Direction } from '../types'
+import {
+  partnerLanguageMeta,
+  partnerLanguages,
+  type AppStatus,
+  type ControlId,
+  type PartnerLanguage,
+} from '../types'
 import { DemoStates } from './DemoStates'
 import './ControlDock.css'
 
 type Props = {
-  direction: Direction
+  partnerLanguage: PartnerLanguage
   status: AppStatus
   isListening: boolean
   registerControl: (
     controlId: ControlId,
   ) => (element: HTMLElement | null) => void
   demoDetailsRef: React.RefObject<HTMLDetailsElement | null>
-  onSelectDirection: (direction: Direction) => void
+  onSelectPartner: (language: PartnerLanguage) => void
   onStart: () => void
   onStop: () => void
   onStatusChange: (status: AppStatus) => void
@@ -39,15 +45,15 @@ function MicIcon() {
   )
 }
 
-// The dock keeps the two decisions that matter — which direction is live,
+// The dock keeps the two decisions that matter — who they are speaking with,
 // and whether the conversation is running — reachable at all times.
 export function ControlDock({
-  direction,
+  partnerLanguage,
   status,
   isListening,
   registerControl,
   demoDetailsRef,
-  onSelectDirection,
+  onSelectPartner,
   onStart,
   onStop,
   onStatusChange,
@@ -57,28 +63,25 @@ export function ControlDock({
     <section className="dock" aria-label="Conversation controls">
       <div className="dock-row">
         <fieldset className="direction-field">
-          <legend>Now translating</legend>
+          <legend>Their language</legend>
           <div className="segmented">
-            <button
-              type="button"
-              ref={registerControl('en-ur')}
-              data-direction="en-ur"
-              className={`segment ${direction === 'en-ur' ? 'segment-active' : ''}`}
-              aria-pressed={direction === 'en-ur'}
-              onClick={() => onSelectDirection('en-ur')}
-            >
-              English <span aria-hidden="true">→</span> Urdu
-            </button>
-            <button
-              type="button"
-              ref={registerControl('ur-en')}
-              data-direction="ur-en"
-              className={`segment ${direction === 'ur-en' ? 'segment-active' : ''}`}
-              aria-pressed={direction === 'ur-en'}
-              onClick={() => onSelectDirection('ur-en')}
-            >
-              Urdu <span aria-hidden="true">→</span> English
-            </button>
+            {partnerLanguages.map((language) => {
+              const meta = partnerLanguageMeta[language]
+              const active = partnerLanguage === language
+              return (
+                <button
+                  key={language}
+                  type="button"
+                  ref={registerControl(language)}
+                  data-language={language}
+                  className={`segment ${active ? 'segment-active' : ''}`}
+                  aria-pressed={active}
+                  onClick={() => onSelectPartner(language)}
+                >
+                  {meta.label}
+                </button>
+              )
+            })}
           </div>
         </fieldset>
 
@@ -107,7 +110,7 @@ export function ControlDock({
 
       <div className="dock-subrow">
         <p className="keyboard-hint">
-          <kbd>←</kbd> <kbd>→</kbd> direction <span aria-hidden="true">·</span>{' '}
+          <kbd>←</kbd> <kbd>→</kbd> language <span aria-hidden="true">·</span>{' '}
           <kbd>↑</kbd> <kbd>↓</kbd> controls <span aria-hidden="true">·</span>{' '}
           <kbd>Enter</kbd> to select
         </p>

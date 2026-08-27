@@ -4,9 +4,10 @@ import {
   INPUT_SAMPLE_RATE,
   OUTPUT_SAMPLE_RATE,
   languagesForDirection,
+  conversationDirections,
 } from './config'
 import { sessionError, toSessionError } from './errors'
-import { connectLiveTransport, type LiveTransport } from './liveTransport'
+import { connectLiveTransport, type LiveTransport, type LiveTransportEvents } from './liveTransport'
 import {
   INITIAL_SESSION_STATE,
   canStart,
@@ -38,6 +39,7 @@ import type {
   SessionState,
   TranscriptKind,
   TranscriptTurn,
+  PartnerLanguage,
   TranslationDirection,
   TranslationSessionSnapshot,
 } from './types'
@@ -74,7 +76,7 @@ export class TranslationSession {
 
   private capture: MicrophoneCapture | null = null
   private playback: PlaybackScheduler | null = null
-  private transport: LiveTransport | null = null
+  private transports: LiveTransport[] = []
   private abortController: AbortController | null = null
   private startupPromise: Promise<void> | null = null
   private shutdownPromise: Promise<void> | null = null
@@ -120,6 +122,24 @@ export class TranslationSession {
    * repeated clicks cannot open a second microphone or Live connection.
    */
   async start(direction?: TranslationDirection): Promise<void> {
+    await this.launch(direction ?? this.direction, [
+      direction ?? this.direction,
+    ])
+  }
+
+  /**
+   * Start a two-way conversation: English and `partner` are both auto-detected.
+   * Two Live sessions share the microphone so each spoken language can be
+   * translated into the other without a manual direction switch.
+   */
+  async startConversation(partner: PartnerLanguage): Promise<void> {
+    await this.launch(`${partner}-to-en`, conversationDirections(partner))
+  }
+
+  private async launch(
+    primary: TranslationDirection,
+    directions: TranslationDirection[],
+  ): Promise<void> {
     // Remember the lifecycle version before waiting. A later stop (including
     // React unmount cleanup) invalidates this queued request so it cannot wake
     // up after teardown and reopen resources without an owner.
@@ -137,10 +157,7 @@ export class TranslationSession {
       return
     }
 
-    if (direction) {
-      this.direction = direction
-    }
-
+    this.direction = primary
     this.error = null
     this.interimTranscript = null
     this.applyEvent('START')
@@ -156,7 +173,7 @@ export class TranslationSession {
     const startupPromise = this.startAttempt(
       generation,
       abortController,
-      this.direction,
+      directions,
     )
     this.startupPromise = startupPromise
 
@@ -237,7 +254,7 @@ export class TranslationSession {
   private async startAttempt(
     generation: number,
     abortController: AbortController,
-    direction: TranslationDirection,
+    directions: TranslationDirection[],
   ): Promise<void> {
     try {
       // Create/resume playback while start() is still running from the click.
@@ -262,12 +279,17 @@ export class TranslationSession {
         onChunk: (samples, sampleRate) => {
           // Chunks captured before the transport is ready are dropped rather
           // than buffered; the UI is still showing "connecting" at that point.
-          if (this.isSuperseded(generation) || !this.transport) {
+          if (this.isSuperseded(generation) || this.transports.length === 0) {
             return
           }
-          this.transport.sendAudioChunk(
-            encodeCaptureChunk(samples, sampleRate, INPUT_SAMPLE_RATE),
+          const chunk = encodeCaptureChunk(
+            samples,
+            sampleRate,
+            INPUT_SAMPLE_RATE,
           )
+          for (const transport of this.transports) {
+            transport.sendAudioChunk(chunk)
+          }
         },
       })
       if (this.isSuperseded(generation)) {
@@ -276,62 +298,48 @@ export class TranslationSession {
       }
       this.capture = capture
 
-      const token = await this.tokenProvider({
-        signal: abortController.signal,
-        direction,
-      })
+      const tokens = await Promise.all(
+        directions.map((direction) =>
+          this.tokenProvider({
+            signal: abortController.signal,
+            direction,
+          }),
+        ),
+      )
       if (this.isSuperseded(generation)) {
         return
       }
 
-      const transport = await connectLiveTransport({
-        token: token.token,
-        model: this.modelOverride ?? token.model ?? DEFAULT_LIVE_MODEL,
-        direction,
-        signal: abortController.signal,
-        events: {
-          onAudio: (pcm16) => {
-            if (!this.isSuperseded(generation)) {
-              this.playback?.enqueue(pcm16)
-            }
-          },
-          onTranscript: (kind, transcription) => {
-            if (!this.isSuperseded(generation)) {
-              this.recordTranscription(kind, transcription)
-            }
-          },
-          onInterimTranscript: (transcription) => {
-            if (!this.isSuperseded(generation)) {
-              this.recordInterim(transcription)
-            }
-          },
-          onInterrupted: () => {
-            if (!this.isSuperseded(generation)) {
-              this.playback?.flush()
-            }
-          },
-          onTurnComplete: () => {
-            if (!this.isSuperseded(generation)) {
-              this.transcript = finalizeOpenTurns(this.transcript)
-              this.interimTranscript = null
-              this.emit()
-            }
-          },
-          onError: () => {
-            void this.fail(sessionError('live-connection-failed'), generation)
-          },
-          onClosed: (expected) => {
-            if (!expected) {
-              void this.fail(sessionError('live-disconnected'), generation)
-            }
-          },
-        },
-      })
-      if (this.isSuperseded(generation)) {
-        transport.close()
-        return
+      const connections = await Promise.allSettled(
+        directions.map((direction, index) =>
+          connectLiveTransport({
+            token: tokens[index].token,
+            model:
+              this.modelOverride ?? tokens[index].model ?? DEFAULT_LIVE_MODEL,
+            direction,
+            signal: abortController.signal,
+            events: this.liveEvents(generation, direction),
+          }),
+        ),
+      )
+      const opened = connections.flatMap((result) =>
+        result.status === 'fulfilled' ? [result.value] : [],
+      )
+      const failure = connections.find((result) => result.status === 'rejected')
+
+      if (this.isSuperseded(generation) || failure) {
+        for (const transport of opened) {
+          transport.close()
+        }
+        if (this.isSuperseded(generation)) {
+          return
+        }
+        throw failure && failure.status === 'rejected'
+          ? failure.reason
+          : sessionError('live-connection-failed')
       }
-      this.transport = transport
+
+      this.transports = opened
 
       this.applyEvent('CONNECTED')
       this.emit()
@@ -343,6 +351,49 @@ export class TranslationSession {
         return
       }
       await this.fail(cause, generation)
+    }
+  }
+
+  private liveEvents(
+    generation: number,
+    direction: TranslationDirection,
+  ): LiveTransportEvents {
+    return {
+      onAudio: (pcm16) => {
+        if (!this.isSuperseded(generation)) {
+          this.playback?.enqueue(pcm16)
+        }
+      },
+      onTranscript: (kind, transcription) => {
+        if (!this.isSuperseded(generation)) {
+          this.recordTranscription(kind, transcription, direction)
+        }
+      },
+      onInterimTranscript: (transcription) => {
+        if (!this.isSuperseded(generation)) {
+          this.recordInterim(transcription, direction)
+        }
+      },
+      onInterrupted: () => {
+        if (!this.isSuperseded(generation)) {
+          this.playback?.flush()
+        }
+      },
+      onTurnComplete: () => {
+        if (!this.isSuperseded(generation)) {
+          this.transcript = finalizeOpenTurns(this.transcript)
+          this.interimTranscript = null
+          this.emit()
+        }
+      },
+      onError: () => {
+        void this.fail(sessionError('live-connection-failed'), generation)
+      },
+      onClosed: (expected) => {
+        if (!expected) {
+          void this.fail(sessionError('live-disconnected'), generation)
+        }
+      },
     }
   }
 
@@ -371,8 +422,9 @@ export class TranslationSession {
   private recordTranscription(
     kind: TranscriptKind,
     transcription: { text?: string; finished?: boolean; languageCode?: string },
+    direction: TranslationDirection = this.direction,
   ): void {
-    const languages = languagesForDirection(this.direction)
+    const languages = languagesForDirection(direction)
     const fragment = normalizeTranscription(
       kind,
       transcription,
@@ -396,7 +448,10 @@ export class TranslationSession {
     this.emit()
   }
 
-  private recordInterim(transcription: { text?: string; languageCode?: string }): void {
+  private recordInterim(
+    transcription: { text?: string; languageCode?: string },
+    direction: TranslationDirection = this.direction,
+  ): void {
     const text = transcription.text ?? ''
     if (text.trim().length === 0) {
       return
@@ -404,7 +459,7 @@ export class TranslationSession {
     this.interimTranscript = {
       text,
       languageCode:
-        transcription.languageCode ?? languagesForDirection(this.direction).source,
+        transcription.languageCode ?? languagesForDirection(direction).source,
     }
     this.emit()
   }
@@ -463,15 +518,17 @@ export class TranslationSession {
       return
     }
 
-    const { abortController, transport, capture, playback } = this
+    const { abortController, transports, capture, playback } = this
     this.abortController = null
-    this.transport = null
+    this.transports = []
     this.capture = null
     this.playback = null
 
     const teardownPromise = (async () => {
       abortController?.abort()
-      transport?.close()
+      for (const transport of transports) {
+        transport.close()
+      }
       // Attempt both cleanups even if one browser implementation rejects.
       await Promise.allSettled([
         Promise.resolve().then(() => capture?.stop()),

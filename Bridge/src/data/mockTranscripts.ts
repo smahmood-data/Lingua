@@ -1,30 +1,11 @@
-import type { AppStatus, Direction, TranscriptLine } from '../types'
+import type { AppStatus, PartnerLanguage, TranscriptLine } from '../types'
 
-// Keeping separate fixtures makes the direction buttons visibly change the demo.
-// The audio issues (#2/#3) will replace these with live session events.
-export const mockTranscripts: Record<Direction, TranscriptLine[]> = {
-  'ur-en': [
+// Keeping separate fixtures makes the language buttons visibly change the demo.
+export const mockTranscripts: Record<PartnerLanguage, TranscriptLine[]> = {
+  ur: [
     {
       id: 1,
-      speaker: 'Speaker 1',
-      originalLanguage: 'Urdu',
-      translatedLanguage: 'English',
-      original: 'ہیلو، کیا آپ میری مدد کر سکتے ہیں؟',
-      translated: 'Hello, can you help me?',
-    },
-    {
-      id: 2,
-      speaker: 'Speaker 2',
-      originalLanguage: 'English',
-      translatedLanguage: 'Urdu',
-      original: 'Yes, of course. What do you need?',
-      translated: 'جی ہاں، ضرور۔ آپ کو کیا چاہیے؟',
-    },
-  ],
-  'en-ur': [
-    {
-      id: 1,
-      speaker: 'Speaker 1',
+      speaker: 'You',
       originalLanguage: 'English',
       translatedLanguage: 'Urdu',
       original: 'Hello, can you help me?',
@@ -32,10 +13,46 @@ export const mockTranscripts: Record<Direction, TranscriptLine[]> = {
     },
     {
       id: 2,
-      speaker: 'Speaker 2',
+      speaker: 'Speaker',
       originalLanguage: 'Urdu',
       translatedLanguage: 'English',
       original: 'جی ہاں، ضرور۔ آپ کو کیا چاہیے؟',
+      translated: 'Yes, of course. What do you need?',
+    },
+  ],
+  es: [
+    {
+      id: 1,
+      speaker: 'You',
+      originalLanguage: 'English',
+      translatedLanguage: 'Spanish',
+      original: 'Hello, can you help me?',
+      translated: 'Hola, ¿puede ayudarme?',
+    },
+    {
+      id: 2,
+      speaker: 'Speaker',
+      originalLanguage: 'Spanish',
+      translatedLanguage: 'English',
+      original: 'Sí, por supuesto. ¿Qué necesita?',
+      translated: 'Yes, of course. What do you need?',
+    },
+  ],
+  bn: [
+    {
+      id: 1,
+      speaker: 'You',
+      originalLanguage: 'English',
+      translatedLanguage: 'Bengali',
+      original: 'Hello, can you help me?',
+      translated: 'হ্যালো, আপনি কি আমাকে সাহায্য করতে পারেন?',
+    },
+    {
+      id: 2,
+      speaker: 'Speaker',
+      originalLanguage: 'Bengali',
+      translatedLanguage: 'English',
+      original: 'হ্যাঁ, অবশ্যই। আপনার কী প্রয়োজন?',
       translated: 'Yes, of course. What do you need?',
     },
   ],

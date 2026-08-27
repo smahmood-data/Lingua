@@ -37,13 +37,22 @@ test('live token validates direction before calling Gemini', async () => {
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), {
     error: 'Validation Error',
-    message: 'direction must be one of: ur-to-en, en-to-ur.',
+    message: 'direction must be a supported English language pair.',
   });
 });
 
 test('live token accepts both canonical and legacy direction spellings', async () => {
   if (!process.env.GEMINI_API_KEY) {
-    for (const direction of ['ur-to-en', 'en-to-ur', 'ur-en', 'en-ur']) {
+    for (const direction of [
+      'ur-to-en',
+      'en-to-ur',
+      'ur-en',
+      'en-ur',
+      'es-to-en',
+      'en-to-es',
+      'bn-to-en',
+      'en-to-bn',
+    ]) {
       const response = await fetch(`${baseUrl}/api/live-token?direction=${direction}`);
       assert.equal(response.status, 500);
       assert.equal((await response.json()).error, 'Configuration Error');

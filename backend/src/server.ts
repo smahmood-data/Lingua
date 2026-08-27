@@ -4,7 +4,13 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
-dotenv.config();
+const backendRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
+const repoRoot = resolve(backendRoot, '..');
+
+dotenv.config({ path: resolve(backendRoot, '.env') });
+if (!process.env.GEMINI_API_KEY) {
+  dotenv.config({ path: resolve(repoRoot, '.env') });
+}
 
 const app = express();
 
@@ -24,7 +30,13 @@ const LIVE_NEW_SESSION_TTL_SECONDS = toPositiveInteger(
   60,
 );
 
-type TranslationDirection = 'ur-to-en' | 'en-to-ur';
+type TranslationDirection =
+  | 'ur-to-en'
+  | 'en-to-ur'
+  | 'es-to-en'
+  | 'en-to-es'
+  | 'bn-to-en'
+  | 'en-to-bn';
 type SummaryArrayKey = Exclude<keyof ConversationSummary, 'summary'>;
 
 const SUMMARY_ARRAY_KEYS: SummaryArrayKey[] = [
@@ -189,7 +201,7 @@ app.get('/api/live-token', async (req: Request, res: Response) => {
   if (!direction) {
     return res.status(400).json({
       error: 'Validation Error',
-      message: 'direction must be one of: ur-to-en, en-to-ur.',
+      message: 'direction must be a supported English language pair.',
     });
   }
 
@@ -381,8 +393,8 @@ async function parseGeminiResponse<T>(response: globalThis.Response): Promise<T>
   return data as T;
 }
 
-function getTargetLanguageCode(direction: TranslationDirection): 'en' | 'ur' {
-  return direction === 'ur-to-en' ? 'en' : 'ur';
+function getTargetLanguageCode(direction: TranslationDirection): string {
+  return direction.split('-to-')[1] ?? 'en';
 }
 
 function buildSummaryPrompt(transcript: TranscriptTurn[], preferredLanguage: string): string {
@@ -480,12 +492,17 @@ function validateSummary(summary: unknown): string | null {
 function normalizeDirection(direction: unknown): TranslationDirection | null {
   const value = typeof direction === 'string' ? direction : 'ur-to-en';
 
-  if (value === 'ur-en') {
-    return 'ur-to-en';
-  }
+  const aliases: Record<string, TranslationDirection> = {
+    'ur-en': 'ur-to-en',
+    'en-ur': 'en-to-ur',
+    'es-en': 'es-to-en',
+    'en-es': 'en-to-es',
+    'bn-en': 'bn-to-en',
+    'en-bn': 'en-to-bn',
+  };
 
-  if (value === 'en-ur') {
-    return 'en-to-ur';
+  if (value in aliases) {
+    return aliases[value];
   }
 
   return isTranslationDirection(value) ? value : null;
@@ -524,7 +541,7 @@ function getErrorStatus(error: unknown): number {
 }
 
 function isTranslationDirection(value: string): value is TranslationDirection {
-  return value === 'ur-to-en' || value === 'en-to-ur';
+  return /^(ur|es|bn)-to-en$/.test(value) || /^en-to-(ur|es|bn)$/.test(value);
 }
 
 function getGeminiApiKey(): string {

@@ -1,12 +1,23 @@
-import type { AppStatus, TranscriptLine } from '../types'
+import {
+  htmlLangFromLanguage,
+  partnerLanguageMeta,
+  type AppStatus,
+  type Language,
+  type PartnerLanguage,
+  type TranscriptLine,
+} from '../types'
 import './Transcript.css'
 
 function speakerVariant(speaker: string) {
-  return speaker === 'Speaker 2' ? 'b' : 'a'
+  return speaker === 'You' ? 'b' : 'a'
 }
 
-function langAttr(language: 'English' | 'Urdu') {
-  return language === 'Urdu' ? 'ur' : 'en'
+function langAttr(language: Language) {
+  return htmlLangFromLanguage(language)
+}
+
+function isRtl(language: Language) {
+  return language === 'Urdu'
 }
 
 function Turn({ line, index }: { line: TranscriptLine; index: number }) {
@@ -30,25 +41,27 @@ function Turn({ line, index }: { line: TranscriptLine; index: number }) {
           line.originalLanguage === 'Urdu' ? 'urdu-text' : ''
         }`}
         lang={langAttr(line.originalLanguage)}
-        dir={line.originalLanguage === 'Urdu' ? 'rtl' : 'ltr'}
+        dir={isRtl(line.originalLanguage) ? 'rtl' : 'ltr'}
       >
         {line.original}
       </p>
 
-      <div className="turn-translation">
-        <span className="translation-label">
-          {line.translatedLanguage} translation
-        </span>
-        <p
-          className={`turn-translated ${
-            line.translatedLanguage === 'Urdu' ? 'urdu-text' : ''
-          }`}
-          lang={langAttr(line.translatedLanguage)}
-          dir={line.translatedLanguage === 'Urdu' ? 'rtl' : 'ltr'}
-        >
-          {line.translated}
-        </p>
-      </div>
+      {line.translated ? (
+        <div className="turn-translation">
+          <span className="translation-label">
+            {line.translatedLanguage} translation
+          </span>
+          <p
+            className={`turn-translated ${
+              line.translatedLanguage === 'Urdu' ? 'urdu-text' : ''
+            }`}
+            lang={langAttr(line.translatedLanguage)}
+            dir={isRtl(line.translatedLanguage) ? 'rtl' : 'ltr'}
+          >
+            {line.translated}
+          </p>
+        </div>
+      ) : null}
     </article>
   )
 }
@@ -81,7 +94,8 @@ function MicGlyph() {
   )
 }
 
-function EmptyState() {
+function EmptyState({ partnerLanguage }: { partnerLanguage: PartnerLanguage }) {
+  const partner = partnerLanguageMeta[partnerLanguage]
   return (
     <div className="transcript-empty">
       <span className="empty-icon">
@@ -90,10 +104,10 @@ function EmptyState() {
       <p className="empty-title">Ready when you are</p>
       <p className="empty-body">
         Start the conversation and Lingua translates live between English and{' '}
-        <span lang="ur" className="urdu-text-inline">
-          اردو
+        <span lang={partner.htmlLang} className={partnerLanguage === 'ur' ? 'urdu-text-inline' : ''}>
+          {partner.nativeName}
         </span>
-        . What each person says appears here, with the translation alongside.
+        . Speak in either language — each turn is transcribed and read aloud.
       </p>
     </div>
   )
@@ -111,7 +125,15 @@ function ConnectingState() {
   )
 }
 
-function ListeningFooter({ sourceLanguage }: { sourceLanguage: string }) {
+function ListeningFooter({
+  sourceLanguage,
+  caption,
+  isPlaying,
+}: {
+  sourceLanguage: string
+  caption?: string
+  isPlaying?: boolean
+}) {
   return (
     <div className="listening-footer" role="status">
       <span className="listening-bars" aria-hidden="true">
@@ -121,7 +143,11 @@ function ListeningFooter({ sourceLanguage }: { sourceLanguage: string }) {
         <span />
       </span>
       <p>
-        Listening — speak in {sourceLanguage} and the translation appears here.
+        {caption
+          ? caption
+          : isPlaying
+            ? 'Playing the translation…'
+            : `Listening — speak in English or ${sourceLanguage}.`}
       </p>
     </div>
   )
@@ -131,13 +157,23 @@ type Props = {
   status: AppStatus
   lines: TranscriptLine[]
   sourceLanguage: string
+  partnerLanguage: PartnerLanguage
+  interimText?: string
+  isPlaying?: boolean
 }
 
-export function Transcript({ status, lines, sourceLanguage }: Props) {
+export function Transcript({
+  status,
+  lines,
+  sourceLanguage,
+  partnerLanguage,
+  interimText,
+  isPlaying,
+}: Props) {
   // Interrupted sessions keep their transcript; states that never started
   // (ready, connecting, mic blocked) show an intentional placeholder instead.
   const showTurns =
-    status === 'listening' || status === 'disconnected' || status === 'error'
+    lines.length > 0 || status === 'listening' || status === 'disconnected'
 
   return (
     <section
@@ -151,7 +187,7 @@ export function Transcript({ status, lines, sourceLanguage }: Props) {
       {!showTurns && status === 'loading' ? (
         <ConnectingState />
       ) : !showTurns ? (
-        <EmptyState />
+        <EmptyState partnerLanguage={partnerLanguage} />
       ) : (
         <ol className="turn-list">
           {lines.map((line, index) => (
@@ -161,7 +197,11 @@ export function Transcript({ status, lines, sourceLanguage }: Props) {
           ))}
           {status === 'listening' && (
             <li>
-              <ListeningFooter sourceLanguage={sourceLanguage} />
+              <ListeningFooter
+                sourceLanguage={sourceLanguage}
+                caption={interimText}
+                isPlaying={isPlaying}
+              />
             </li>
           )}
         </ol>

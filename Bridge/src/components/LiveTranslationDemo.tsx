@@ -11,18 +11,27 @@ import type { SessionState, TranslationDirection } from '../lib/translation'
  */
 
 const DIRECTION_LABELS: Record<
-  TranslationDirection,
+  'ur-to-en' | 'en-to-ur',
   { label: string; source: string; target: string }
 > = {
   'ur-to-en': { label: 'Urdu → English', source: 'Urdu', target: 'English' },
   'en-to-ur': { label: 'English → Urdu', source: 'English', target: 'Urdu' },
 }
 
-function stateLabel(state: SessionState, direction: TranslationDirection): string {
-  const languages = DIRECTION_LABELS[direction]
+function stateLabel(
+  state: SessionState,
+  direction: TranslationDirection,
+): string {
+  const languages = DIRECTION_LABELS[direction as keyof typeof DIRECTION_LABELS]
   if (state === 'connecting') return 'Connecting…'
-  if (state === 'listening') return `Listening for ${languages.source}`
-  if (state === 'translating') return `Playing ${languages.target} translation`
+  if (state === 'listening') {
+    return languages ? `Listening for ${languages.source}` : 'Listening'
+  }
+  if (state === 'translating') {
+    return languages
+      ? `Playing ${languages.target} translation`
+      : 'Playing translation'
+  }
   if (state === 'error') return 'Error'
   return 'Stopped'
 }
@@ -67,7 +76,11 @@ export function LiveTranslationDemo() {
 
   return (
     <main style={page}>
-      <h1>{DIRECTION_LABELS[direction].label} live translation</h1>
+      <h1>
+        {(DIRECTION_LABELS[direction as keyof typeof DIRECTION_LABELS]?.label ??
+          'Live')}{' '}
+        translation
+      </h1>
       <p>
         Developer harness for issues #2 and #3. Choose who is speaking, then start
         the session. Headphones are recommended so translated output is not picked

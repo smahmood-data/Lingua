@@ -5,24 +5,104 @@ import { TopBar } from './components/TopBar'
 import { Transcript } from './components/Transcript'
 import { mockTranscripts } from './data/mockTranscripts'
 import { useControlKeyboard } from './hooks/useControlKeyboard'
+import { useTranslationSession } from './hooks/useTranslationSession'
+import type { SessionError, SessionState, TranscriptTurn } from './lib/translation'
 import {
   controlIds,
+  languageFromCode,
+  partnerLanguageMeta,
   type AppStatus,
   type ControlId,
-  type Direction,
+  type Language,
+  type PartnerLanguage,
+  type TranscriptLine,
 } from './types'
 import './App.css'
 
-function App() {
-  // State is data that can change while the app is running. Updating it rerenders the UI.
-  const [direction, setDirection] = useState<Direction>('ur-en')
-  const [status, setStatus] = useState<AppStatus>('ready')
+function toAppStatus(
+  state: SessionState,
+  error: SessionError | null,
+): AppStatus {
+  if (error?.code === 'microphone-permission-denied') return 'denied'
+  if (error?.code === 'live-disconnected') return 'disconnected'
+  if (state === 'error') return 'error'
+  if (state === 'connecting') return 'loading'
+  if (state === 'listening' || state === 'translating') return 'listening'
+  return 'ready'
+}
 
-  // Refs point to real DOM controls so keyboard navigation can move focus.
-  // Callbacks are created here so child components never mutate the ref map.
+function otherLanguage(language: Language, partner: PartnerLanguage): Language {
+  return language === 'English' ? partnerLanguageMeta[partner].label : 'English'
+}
+
+function toTranscriptLines(
+  turns: TranscriptTurn[],
+  partner: PartnerLanguage,
+): TranscriptLine[] {
+  const lines: TranscriptLine[] = []
+  let pendingSource: TranscriptTurn | null = null
+  let id = 1
+
+  const pushLine = (
+    source: TranscriptTurn | null,
+    translation: TranscriptTurn | null,
+  ) => {
+    const spoken = source ?? translation
+    if (!spoken) return
+
+    const originalLanguage = languageFromCode(
+      source?.languageCode ?? spoken.languageCode,
+    )
+    const translatedLanguage = translation
+      ? languageFromCode(translation.languageCode)
+      : otherLanguage(originalLanguage, partner)
+
+    lines.push({
+      id,
+      speaker: originalLanguage === 'English' ? 'You' : 'Speaker',
+      originalLanguage,
+      translatedLanguage,
+      original: source?.text ?? '',
+      translated: translation?.text ?? '',
+    })
+    id += 1
+  }
+
+  for (const turn of turns) {
+    if (turn.kind === 'source') {
+      if (pendingSource) pushLine(pendingSource, null)
+      pendingSource = turn
+      continue
+    }
+    pushLine(pendingSource, turn)
+    pendingSource = null
+  }
+
+  if (pendingSource) pushLine(pendingSource, null)
+  return lines
+}
+
+function App() {
+  const {
+    state,
+    error,
+    transcript,
+    interimTranscript,
+    isActive,
+    startConversation,
+    stop,
+  } = useTranslationSession()
+
+  const [partnerLanguage, setPartnerLanguage] = useState<PartnerLanguage>('ur')
+  const [previewStatus, setPreviewStatus] = useState<AppStatus | null>(null)
+  const liveStatus = toAppStatus(state, error)
+  const usingPreview = state === 'stopped' && !error && previewStatus !== null
+  const status = usingPreview ? previewStatus : liveStatus
+
   const controlRefs = useRef<Record<ControlId, HTMLElement | null>>({
-    'en-ur': null,
-    'ur-en': null,
+    ur: null,
+    es: null,
+    bn: null,
     start: null,
     stop: null,
     demo: null,
@@ -42,56 +122,65 @@ function App() {
     return (controlId: ControlId) => callbacks[controlId]
   }, [])
 
-  // These values are derived from direction rather than stored separately.
-  const isListening = status === 'listening'
-  const sourceLanguage = direction === 'en-ur' ? 'English' : 'Urdu'
-  const mockTranscript = mockTranscripts[direction]
+  const isListening = isActive
+  const sourceLanguage = partnerLanguageMeta[partnerLanguage].label
+  const liveLines = toTranscriptLines(transcript, partnerLanguage)
+  const lines = usingPreview ? mockTranscripts[partnerLanguage] : liveLines
 
-  const selectDirection = useCallback((nextDirection: Direction) => {
-    setDirection(nextDirection)
-  }, [])
+  const selectPartner = useCallback(
+    (nextLanguage: PartnerLanguage) => {
+      setPartnerLanguage(nextLanguage)
+      if (isActive) {
+        void stop()
+      }
+    },
+    [isActive, stop],
+  )
 
   const { handleDemoSelectKeyDown } = useControlKeyboard({
-    direction,
+    partnerLanguage,
     isListening,
-    onSelectDirection: selectDirection,
+    onSelectPartner: selectPartner,
     controlRefs,
     demoDetailsRef,
   })
 
   function startInterpreter() {
-    // This is mock behavior for now; the audio issues (#2/#3) will request
-    // the microphone and open the Live session here instead.
-    setStatus('listening')
+    setPreviewStatus(null)
+    void startConversation(partnerLanguage)
   }
 
   function stopInterpreter() {
-    setStatus('ready')
+    setPreviewStatus(null)
+    void stop()
   }
 
   return (
     <div className="app-shell">
-      <TopBar status={status} />
+      <TopBar status={status} partnerLanguage={partnerLanguage} />
 
       <main className="app-main">
-        <StatusNotice status={status} />
+        <StatusNotice status={status} detail={error?.message} />
         <Transcript
           status={status}
-          lines={mockTranscript}
+          lines={lines}
           sourceLanguage={sourceLanguage}
+          partnerLanguage={partnerLanguage}
+          interimText={interimTranscript?.text}
+          isPlaying={state === 'translating'}
         />
       </main>
 
       <ControlDock
-        direction={direction}
+        partnerLanguage={partnerLanguage}
         status={status}
         isListening={isListening}
         registerControl={registerControl}
         demoDetailsRef={demoDetailsRef}
-        onSelectDirection={selectDirection}
+        onSelectPartner={selectPartner}
         onStart={startInterpreter}
         onStop={stopInterpreter}
-        onStatusChange={setStatus}
+        onStatusChange={setPreviewStatus}
         onDemoSelectKeyDown={handleDemoSelectKeyDown}
       />
     </div>

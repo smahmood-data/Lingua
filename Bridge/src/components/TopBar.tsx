@@ -1,5 +1,5 @@
+import { partnerLanguageMeta, type AppStatus, type PartnerLanguage } from '../types'
 import { statusMeta } from '../data/mockTranscripts'
-import type { AppStatus } from '../types'
 import './TopBar.css'
 
 function SwapGlyph() {
@@ -38,7 +38,15 @@ function StatusIndicator({ status }: { status: AppStatus }) {
   )
 }
 
-export function TopBar({ status }: { status: AppStatus }) {
+export function TopBar({
+  status,
+  partnerLanguage,
+}: {
+  status: AppStatus
+  partnerLanguage: PartnerLanguage
+}) {
+  const partner = partnerLanguageMeta[partnerLanguage]
+
   return (
     <header className="topbar">
       <div className="brand">
@@ -49,12 +57,16 @@ export function TopBar({ status }: { status: AppStatus }) {
         <h1 className="brand-name">Lingua</h1>
       </div>
 
-      <p className="language-pair" aria-label="Translating between English and Urdu">
+      <p
+        className="language-pair"
+        aria-label={`Translating between English and ${partner.label}`}
+      >
         <span className="pair-full">
-          English <SwapGlyph /> <span lang="ur">اردو</span>
+          English <SwapGlyph />{' '}
+          <span lang={partner.htmlLang}>{partner.nativeName}</span>
         </span>
         <span className="pair-short" aria-hidden="true">
-          EN <SwapGlyph /> UR
+          EN <SwapGlyph /> {partner.short}
         </span>
       </p>
 

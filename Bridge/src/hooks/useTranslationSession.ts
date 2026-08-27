@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { TranslationSession, isSessionActive } from '../lib/translation'
 import type {
   InterimTranscript,
+  PartnerLanguage,
   SessionError,
   SessionState,
   TranscriptTurn,
@@ -24,6 +25,8 @@ export interface UseTranslationSessionResult {
   isActive: boolean
   /** Start a session. Repeated calls while active are ignored. */
   start: (direction?: TranslationDirection) => Promise<void>
+  /** Two-way English ↔ partner conversation; auto-detects who is speaking. */
+  startConversation: (partner: PartnerLanguage) => Promise<void>
   /** Select a direction, stopping an active session before it changes. */
   setDirection: (direction: TranslationDirection) => Promise<void>
   /** Stop and release everything. Safe to call more than once. */
@@ -62,6 +65,10 @@ export function useTranslationSession(
     (direction?: TranslationDirection) => session.start(direction),
     [session],
   )
+  const startConversation = useCallback(
+    (partner: PartnerLanguage) => session.startConversation(partner),
+    [session],
+  )
   const setDirection = useCallback(
     (direction: TranslationDirection) => session.setDirection(direction),
     [session],
@@ -77,6 +84,7 @@ export function useTranslationSession(
     interimTranscript: snapshot.interimTranscript,
     isActive: isSessionActive(snapshot.state),
     start,
+    startConversation,
     setDirection,
     stop,
     clearTranscript,

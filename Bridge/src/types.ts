@@ -1,6 +1,8 @@
-export type Direction = 'en-ur' | 'ur-en'
-export type Language = 'English' | 'Urdu'
-export type TranslationDirection = 'ur-to-en' | 'en-to-ur'
+export type PartnerLanguage = 'ur' | 'es' | 'bn'
+export type Language = 'English' | 'Urdu' | 'Spanish' | 'Bengali'
+export type TranslationDirection =
+  | `${PartnerLanguage}-to-en`
+  | `en-to-${PartnerLanguage}`
 
 export type AppStatus =
   | 'ready'
@@ -43,25 +45,43 @@ export interface TokenResponse {
   direction: TranslationDirection;
 }
 
-export const directions: Direction[] = ['en-ur', 'ur-en']
+export const partnerLanguages: PartnerLanguage[] = ['ur', 'es', 'bn']
 
-export type ControlId = Direction | 'start' | 'stop' | 'demo'
+export const partnerLanguageMeta: Record<
+  PartnerLanguage,
+  { label: Language; nativeName: string; htmlLang: string; short: string }
+> = {
+  ur: { label: 'Urdu', nativeName: 'اردو', htmlLang: 'ur', short: 'UR' },
+  es: { label: 'Spanish', nativeName: 'Español', htmlLang: 'es', short: 'ES' },
+  bn: { label: 'Bengali', nativeName: 'বাংলা', htmlLang: 'bn', short: 'BN' },
+}
+
+export type ControlId = PartnerLanguage | 'start' | 'stop' | 'demo'
 
 export const controlLayout: ControlId[][] = [
-  ['en-ur', 'ur-en'],
+  ['ur', 'es', 'bn'],
   ['start', 'stop'],
 ]
 
-export const controlIds: ControlId[] = [
-  'en-ur',
-  'ur-en',
-  'start',
-  'stop',
-  'demo',
-]
+export const controlIds: ControlId[] = ['ur', 'es', 'bn', 'start', 'stop', 'demo']
 
 export function isControlDisabled(controlId: ControlId, isListening: boolean) {
   if (controlId === 'start') return isListening
   if (controlId === 'stop') return !isListening
   return false
+}
+
+export function languageFromCode(code: string): Language {
+  const normalized = code.toLowerCase()
+  if (normalized.startsWith('ur')) return 'Urdu'
+  if (normalized.startsWith('es') || normalized.startsWith('spa')) return 'Spanish'
+  if (normalized.startsWith('bn') || normalized.startsWith('ben')) return 'Bengali'
+  return 'English'
+}
+
+export function htmlLangFromLanguage(language: Language): string {
+  if (language === 'Urdu') return 'ur'
+  if (language === 'Spanish') return 'es'
+  if (language === 'Bengali') return 'bn'
+  return 'en'
 }

@@ -1,4 +1,4 @@
-import type { TranslationDirection } from './types'
+import type { PartnerLanguage, TranslationDirection } from './types'
 
 /**
  * Live translation model.
@@ -76,10 +76,21 @@ interface DirectionLanguages {
 const DIRECTION_LANGUAGES: Record<TranslationDirection, DirectionLanguages> = {
   'ur-to-en': { source: 'ur', target: 'en' },
   'en-to-ur': { source: 'en', target: 'ur' },
+  'es-to-en': { source: 'es', target: 'en' },
+  'en-to-es': { source: 'en', target: 'es' },
+  'bn-to-en': { source: 'bn', target: 'en' },
+  'en-to-bn': { source: 'en', target: 'bn' },
 }
 
 export function languagesForDirection(
   direction: TranslationDirection,
 ): DirectionLanguages {
   return DIRECTION_LANGUAGES[direction]
+}
+
+/** Both live directions needed for a two-way English ↔ partner conversation. */
+export function conversationDirections(
+  partner: PartnerLanguage,
+): TranslationDirection[] {
+  return [`${partner}-to-en`, `en-to-${partner}`]
 }

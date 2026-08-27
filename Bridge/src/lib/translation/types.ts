@@ -8,8 +8,8 @@
  */
 
 /** Shared API direction contract used by both live translation directions. */
-import type { TranslationDirection } from '../../types'
-export type { TranslationDirection }
+import type { PartnerLanguage, TranslationDirection } from '../../types'
+export type { PartnerLanguage, TranslationDirection }
 
 /**
  * Session lifecycle states.
