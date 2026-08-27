@@ -119,6 +119,7 @@ function App() {
 
   // When returning from the demo menu, remember whether Start or Stop came first.
   const lastMicControlRef = useRef<'start' | 'stop'>('start')
+  const demoDetailsRef = useRef<HTMLDetailsElement | null>(null)
 
   // These values are derived from direction rather than stored separately.
   const isListening = status === 'listening'
@@ -143,6 +144,13 @@ function App() {
   }
 
   function focusControl(controlId: ControlId) {
+    // The demo select is inside a collapsible details element. Open it before
+    // moving focus so keyboard navigation never focuses hidden content.
+    if (controlId === 'demo') {
+      const demoDetails = demoDetailsRef.current
+      if (demoDetails) demoDetails.open = true
+    }
+
     // Moving to a direction also selects it, which updates the transcript.
     if (controlId === 'en-ur' || controlId === 'ur-en') {
       selectDirection(controlId)
@@ -220,10 +228,18 @@ function App() {
           return null
         }
 
-        const nextControl = controlLayout[nextRowIndex][columnIndex]
-        return isControlDisabled(nextControl, isListening)
-          ? null
-          : nextControl
+        const targetRow = controlLayout[nextRowIndex]
+        const nextControl = targetRow[columnIndex]
+
+        // If the same-column control is disabled, move to another enabled
+        // control in the target row instead of leaving focus stranded.
+        return (
+          (nextControl && !isControlDisabled(nextControl, isListening)
+            ? nextControl
+            : targetRow.find(
+                (controlId) => !isControlDisabled(controlId, isListening),
+              )) ?? null
+        )
       }
 
       return null
@@ -259,10 +275,14 @@ function App() {
         nextControl = getNextControl(focusedControl, event.key)
       } else if (event.key === 'ArrowDown') {
         const directionColumn = directions.indexOf(directionRef.current)
-        const controlBelow = controlLayout[1][directionColumn]
-        nextControl = isControlDisabled(controlBelow, isListening)
-          ? null
-          : controlBelow
+        const microphoneRow = controlLayout[1]
+        const controlBelow = microphoneRow[directionColumn]
+        nextControl =
+          (controlBelow && !isControlDisabled(controlBelow, isListening)
+            ? controlBelow
+            : microphoneRow.find(
+                (controlId) => !isControlDisabled(controlId, isListening),
+              )) ?? null
       } else if (event.key === 'ArrowUp') {
         nextControl = directionRef.current
       } else {
@@ -382,7 +402,10 @@ function App() {
         </div>
 
         {/* Temporary controls let us demonstrate required states without an API. */}
-        <details className="demo-controls">
+        <details
+          ref={demoDetailsRef}
+          className="demo-controls"
+        >
           <summary>Demo state testing</summary>
 
           <label>
@@ -405,6 +428,9 @@ function App() {
                   event.currentTarget.selectedIndex === 0
                 ) {
                   event.preventDefault()
+                  if (demoDetailsRef.current) {
+                    demoDetailsRef.current.open = false
+                  }
 
                   const previousControl = isControlDisabled(
                     lastMicControlRef.current,
