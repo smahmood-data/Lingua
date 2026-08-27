@@ -1,11 +1,12 @@
 {
-  "name": "offerguard-backend",
+  "name": "lingua-backend",
   "version": "1.0.0",
-  "description": "Secure Gemini backend proxy and shared contracts",
+  "description": "Secure Gemini backend for Lingua Live API tokens and summaries",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
+    "check": "node --check src/server.js",
     "dev": "node --watch src/server.js"
   },
   "dependencies": {

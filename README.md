@@ -1,10 +1,11 @@
-# OfferGuard Secure Gemini Backend & Bridge Frontend
+# Lingua Secure Gemini Backend & Bridge Frontend
 
-This repository provides the minimal secure Node/Express backend foundation and React/Vite frontend (`Bridge`) for the Gemini Live API integration.
+This repository provides the minimal secure Node/Express backend foundation and React/Vite frontend (`Bridge`) for the Lingua Gemini Live API integration.
 
 ## Architecture & Security
 - **No Client Exposure**: `GEMINI_API_KEY` is kept exclusively on the Node/Express backend (`backend/`).
-- **Token Endpoint**: The frontend requests session configuration/tokens from `/api/gemini/token`.
+- **Live Token Endpoint**: The frontend requests constrained short-lived Live API tokens from `/api/live-token`.
+- **Summary Endpoint**: The frontend can send final transcript turns to `/api/summarize` for server-side structured extraction.
 - **Shared Contracts**: Common types (`TranslationDirection`, `TranscriptTurn`, `SessionState`, `ApiError`) are defined under `Bridge/src/types.ts`.
 
 ## Getting Started
