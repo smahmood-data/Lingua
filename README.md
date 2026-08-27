@@ -28,7 +28,7 @@ Misunderstanding detection is a stretch goal. Authentication, a database, call i
 
 ## Current status
 
-The repository contains a React + TypeScript + Vite frontend in [`Bridge/`](./Bridge) and a TypeScript Express backend in [`backend/`](./backend). The backend provides secure ephemeral Gemini Live tokens and a validated structured-summary endpoint.
+The repository contains a React + TypeScript + Vite frontend in [`Bridge/`](./Bridge) and a TypeScript Express backend in [`backend/`](./backend). Issue #1 provides secure ephemeral Gemini Live tokens and a validated structured-summary endpoint. Issue #2 adds the Urdu → English live audio pipeline—microphone capture, PCM conversion, Gemini Live transport, streamed playback, and transcript events—behind the `useTranslationSession` hook. The developer harness is documented in the [frontend README](./Bridge/README.md); real end-to-end translation still needs a valid Gemini credential and browser microphone access.
 
 ## Architecture & Security
 

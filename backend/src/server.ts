@@ -310,7 +310,7 @@ async function createGeminiLiveToken({
           responseModalities: ['AUDIO'],
           translationConfig: {
             targetLanguageCode: getTargetLanguageCode(direction),
-            echoTargetLanguage: true,
+            echoTargetLanguage: false,
           },
         },
         sessionResumption: {},
