@@ -142,9 +142,11 @@ export function Transcript({ status, lines, sourceLanguage }: Props) {
   return (
     <section
       className={`transcript ${showTurns ? '' : 'transcript-placeholder'}`}
-      aria-label="Transcript"
+      aria-labelledby="transcript-heading"
     >
-      <h2 className="sr-only">Conversation transcript</h2>
+      <h2 id="transcript-heading" className="sr-only">
+        Conversation transcript
+      </h2>
 
       {!showTurns && status === 'loading' ? (
         <ConnectingState />
