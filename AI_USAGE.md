@@ -18,6 +18,7 @@ Add a row whenever an AI tool materially helps create or revise code, tests, pro
 | --- | --- | --- | --- | --- | --- |
 | 2026-08-27 | Adil / team review pending | Codex | Initial project documentation | Repo assessment, MVP documentation, workflow, and environment scaffolding | Confirmed repository state and official Gemini documentation; team review still required. |
 | 2026-08-27 | Adil / team review pending | Codex | Prototype roadmap, GitHub issues #1–#7, CI, and PR workflow | Drafted ordered scope, linked dependencies, acceptance criteria, story-point estimates, labels, CI, and repository-setting guidance | Removed third-party call integration, simplified labels, kept story points in issue bodies, and left ownership unassigned for the team to decide. |
+| 2026-08-27 | Adil | Claude | Issue #2 Urdu → English live audio pipeline (`Bridge/src/lib/translation/`, `useTranslationSession`) | Scaffolded the capture/PCM/transport/playback/session split, the Gemini Live integration, and the error and cleanup handling; investigated three external code reviews and proposed the resulting fixes | Adil reviewed and integrated the changes and ran lint, build, and the local logic and lifecycle checks. Real Urdu → English translation is still unverified and is blocked on #1. |
 
 ## Team responsibility
 
