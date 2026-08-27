@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ dotenv.config();
 
 const app = express();
 
-const PORT = process.env.PORT || 3001;
+const PORT = toPositiveInteger(process.env.PORT, 3001);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_API_BASE_URL =
   (process.env.GEMINI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').replace(
@@ -16,7 +16,7 @@ const GEMINI_API_BASE_URL =
     '',
   );
 const GEMINI_LIVE_MODEL =
-  process.env.GEMINI_LIVE_MODEL || 'models/gemini-3.1-flash-live-preview';
+  process.env.GEMINI_LIVE_MODEL || 'gemini-3.5-live-translate-preview';
 const GEMINI_SUMMARY_MODEL = process.env.GEMINI_SUMMARY_MODEL || 'gemini-3.7-flash';
 const LIVE_TOKEN_TTL_MINUTES = toPositiveInteger(process.env.LIVE_TOKEN_TTL_MINUTES, 30);
 const LIVE_NEW_SESSION_TTL_SECONDS = toPositiveInteger(
@@ -165,7 +165,7 @@ app.use(
 );
 app.use(express.json({ limit: '1mb' }));
 
-app.use((error: unknown, _req: Request, res: Response, next: () => void) => {
+app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
   if (error instanceof SyntaxError) {
     return res.status(400).json({
       error: 'Validation Error',
@@ -173,7 +173,7 @@ app.use((error: unknown, _req: Request, res: Response, next: () => void) => {
     });
   }
 
-  next();
+  next(error);
 });
 
 app.get('/api/health', (_req: Request, res: Response) => {
@@ -277,6 +277,14 @@ app.use((_req: Request, res: Response) => {
   });
 });
 
+app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const status = getErrorStatus(error);
+  res.status(status).json({
+    error: status === 413 ? 'Payload Too Large' : 'Request Error',
+    message: status === 413 ? 'Request body exceeds the 1MB limit.' : 'Unable to process the request.',
+  });
+});
+
 async function createGeminiLiveToken({
   direction,
   expireTime,
@@ -297,16 +305,17 @@ async function createGeminiLiveToken({
       expireTime,
       newSessionExpireTime,
       bidiGenerateContentSetup: {
-        model: GEMINI_LIVE_MODEL,
+        model: `models/${GEMINI_LIVE_MODEL.replace(/^models\//, '')}`,
         generationConfig: {
           responseModalities: ['AUDIO'],
+          translationConfig: {
+            targetLanguageCode: getTargetLanguageCode(direction),
+            echoTargetLanguage: true,
+          },
         },
         sessionResumption: {},
         inputAudioTranscription: {},
         outputAudioTranscription: {},
-        systemInstruction: {
-          parts: [{ text: buildLiveSystemInstruction(direction) }],
-        },
       },
     }),
     signal: AbortSignal.timeout(30_000),
@@ -372,22 +381,8 @@ async function parseGeminiResponse<T>(response: globalThis.Response): Promise<T>
   return data as T;
 }
 
-function buildLiveSystemInstruction(direction: TranslationDirection): string {
-  if (direction === 'ur-to-en') {
-    return [
-      'You are Lingua, a real-time medical and service interpreter.',
-      'Translate spoken Urdu into clear spoken English.',
-      'Preserve names, dates, times, locations, documents, and instructions exactly.',
-      'Do not add advice, diagnosis, or extra details.',
-    ].join(' ');
-  }
-
-  return [
-    'You are Lingua, a real-time medical and service interpreter.',
-    'Translate spoken English into clear spoken Urdu.',
-    'Preserve names, dates, times, locations, documents, and instructions exactly.',
-    'Do not add advice, diagnosis, or extra details.',
-  ].join(' ');
+function getTargetLanguageCode(direction: TranslationDirection): 'en' | 'ur' {
+  return direction === 'ur-to-en' ? 'en' : 'ur';
 }
 
 function buildSummaryPrompt(transcript: TranscriptTurn[], preferredLanguage: string): string {
@@ -515,6 +510,17 @@ function safeJsonParse(text: string): unknown {
 function toPositiveInteger(value: string | undefined, fallback: number): number {
   const number = Number.parseInt(value ?? '', 10);
   return Number.isInteger(number) && number > 0 ? number : fallback;
+}
+
+function getErrorStatus(error: unknown): number {
+  if (error && typeof error === 'object' && 'status' in error) {
+    const status = error.status;
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      return status;
+    }
+  }
+
+  return 500;
 }
 
 function isTranslationDirection(value: string): value is TranslationDirection {

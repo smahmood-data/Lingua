@@ -19,4 +19,7 @@ export interface ApiError {
 export interface TokenResponse {
   token: string;
   expiresAt: string;
+  newSessionExpiresAt: string;
+  model: string;
+  direction: TranslationDirection;
 }
