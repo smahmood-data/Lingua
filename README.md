@@ -105,6 +105,7 @@ Missing information should produce an empty array, not a fabricated value. The s
 
 ## Documentation
 
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — system architecture, user journey, runtime sequences, summary flow, and issue dependencies
 - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — ordered four-hour prototype backlog, dependencies, demo script, and submission checklist
 - [`docs/REPOSITORY_SETTINGS.md`](./docs/REPOSITORY_SETTINGS.md) — owner-only GitHub protection and merge settings
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — branches, commits, pull requests, and team workflow
