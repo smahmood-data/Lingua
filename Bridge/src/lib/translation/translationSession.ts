@@ -5,7 +5,7 @@ import {
   OUTPUT_SAMPLE_RATE,
   languagesForDirection,
 } from './config'
-import { sessionError } from './errors'
+import { sessionError, toSessionError } from './errors'
 import { connectLiveTransport, type LiveTransport } from './liveTransport'
 import {
   INITIAL_SESSION_STATE,
@@ -14,7 +14,7 @@ import {
   type SessionEvent,
 } from './sessionMachine'
 import {
-  appendFragment,
+  commitFragment,
   finalizeOpenTurns,
   normalizeTranscription,
 } from './transcript'
@@ -32,6 +32,7 @@ import {
   type PlaybackScheduler,
 } from './audio/playbackScheduler'
 import type {
+  InterimTranscript,
   SessionError,
   SessionState,
   TranscriptKind,
@@ -51,19 +52,6 @@ export interface TranslationSessionOptions {
 
 export type SessionListener = (snapshot: TranslationSessionSnapshot) => void
 
-function isSessionError(value: unknown): value is SessionError {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'code' in value &&
-    'message' in value
-  )
-}
-
-function isAbort(value: unknown): boolean {
-  return value instanceof DOMException && value.name === 'AbortError'
-}
-
 /**
  * Owns one live translation session: lifecycle, state transitions, resource
  * cleanup, and transcript accumulation.
@@ -78,6 +66,7 @@ export class TranslationSession {
   private state: SessionState = INITIAL_SESSION_STATE
   private error: SessionError | null = null
   private transcript: TranscriptTurn[] = []
+  private interimTranscript: InterimTranscript | null = null
   private direction: TranslationDirection
   private readonly tokenProvider: LiveTokenProvider
   private readonly modelOverride?: string
@@ -102,6 +91,7 @@ export class TranslationSession {
       direction: this.direction,
       error: this.error,
       transcript: this.transcript,
+      interimTranscript: this.interimTranscript,
     }
   }
 
@@ -134,6 +124,7 @@ export class TranslationSession {
     }
 
     this.error = null
+    this.interimTranscript = null
     this.applyEvent('START')
     this.emit()
 
@@ -164,7 +155,10 @@ export class TranslationSession {
       }
       this.capture = capture
 
-      const token = await this.tokenProvider(abortController.signal)
+      const token = await this.tokenProvider({
+        signal: abortController.signal,
+        direction: this.direction,
+      })
       if (this.isSuperseded(generation)) {
         return
       }
@@ -195,6 +189,11 @@ export class TranslationSession {
               this.recordTranscription(kind, transcription)
             }
           },
+          onInterimTranscript: (transcription) => {
+            if (!this.isSuperseded(generation)) {
+              this.recordInterim(transcription)
+            }
+          },
           onInterrupted: () => {
             if (!this.isSuperseded(generation)) {
               this.playback?.flush()
@@ -203,6 +202,7 @@ export class TranslationSession {
           onTurnComplete: () => {
             if (!this.isSuperseded(generation)) {
               this.transcript = finalizeOpenTurns(this.transcript)
+              this.interimTranscript = null
               this.emit()
             }
           },
@@ -225,7 +225,10 @@ export class TranslationSession {
       this.applyEvent('CONNECTED')
       this.emit()
     } catch (cause) {
-      if (isAbort(cause) || this.isSuperseded(generation)) {
+      // The only thing that aborts our controller is teardown, which always
+      // bumps the generation first, so a supersession check covers cancellation
+      // without having to recognise AbortError by shape.
+      if (this.isSuperseded(generation)) {
         return
       }
       await this.fail(cause, generation)
@@ -238,6 +241,7 @@ export class TranslationSession {
     this.applyEvent('STOP')
     await this.teardown()
     this.transcript = finalizeOpenTurns(this.transcript)
+    this.interimTranscript = null
     this.emit()
   }
 
@@ -254,6 +258,7 @@ export class TranslationSession {
   /** Clear the in-memory transcript. Nothing is persisted anywhere. */
   clearTranscript(): void {
     this.transcript = []
+    this.interimTranscript = null
     this.emit()
   }
 
@@ -294,12 +299,29 @@ export class TranslationSession {
     }
 
     this.turnCounter += 1
-    this.transcript = appendFragment(
+    this.transcript = commitFragment(
       this.transcript,
       fragment,
       `turn-${this.turnCounter}`,
       Date.now(),
     )
+    if (kind === 'source') {
+      // The finalised segment supersedes whatever preview was on screen.
+      this.interimTranscript = null
+    }
+    this.emit()
+  }
+
+  private recordInterim(transcription: { text?: string; languageCode?: string }): void {
+    const text = transcription.text ?? ''
+    if (text.trim().length === 0) {
+      return
+    }
+    this.interimTranscript = {
+      text,
+      languageCode:
+        transcription.languageCode ?? languagesForDirection(this.direction).source,
+    }
     this.emit()
   }
 
@@ -313,10 +335,11 @@ export class TranslationSession {
     }
 
     this.generation += 1
-    this.error = isSessionError(cause) ? cause : sessionError('unknown')
+    this.error = toSessionError(cause)
     this.applyEvent('FAIL')
     await this.teardown()
     this.transcript = finalizeOpenTurns(this.transcript)
+    this.interimTranscript = null
     this.emit()
   }
 
@@ -340,6 +363,7 @@ export class TranslationSession {
       direction: this.direction,
       error: this.error,
       transcript: this.transcript,
+      interimTranscript: this.interimTranscript,
     }
     for (const listener of this.listeners) {
       listener(this.snapshot)

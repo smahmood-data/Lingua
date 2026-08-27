@@ -56,9 +56,25 @@ export interface TranscriptTurn {
   text: string
   /** BCP-47 code reported by the API, or the configured language for this side. */
   languageCode: string
-  /** False while the turn is still accumulating fragments. */
+  /**
+   * Normally true: these turns are built from the API's finalised transcription
+   * segments. It is only false if the API explicitly marks a segment unfinished,
+   * in which case the next segment of the same kind extends this turn.
+   */
   isFinal: boolean
   createdAt: number
+}
+
+/**
+ * Speculative partial transcription of the current speaker.
+ *
+ * Updated while someone is still talking and replaced wholesale, so it belongs
+ * in a live caption line rather than in the transcript history. It is cleared
+ * as soon as the finalised segment for that speech arrives.
+ */
+export interface InterimTranscript {
+  text: string
+  languageCode: string
 }
 
 /** Snapshot handed to subscribers on every change. */
@@ -66,5 +82,8 @@ export interface TranslationSessionSnapshot {
   state: SessionState
   direction: TranslationDirection
   error: SessionError | null
+  /** Finalised turns, oldest first. */
   transcript: TranscriptTurn[]
+  /** Live partial caption, or `null` when there is nothing in progress. */
+  interimTranscript: InterimTranscript | null
 }

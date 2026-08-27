@@ -43,8 +43,16 @@ const panel: CSSProperties = {
 }
 
 export function LiveTranslationDemo() {
-  const { state, error, transcript, isActive, start, stop, clearTranscript } =
-    useTranslationSession()
+  const {
+    state,
+    error,
+    transcript,
+    interimTranscript,
+    isActive,
+    start,
+    stop,
+    clearTranscript,
+  } = useTranslationSession()
 
   return (
     <main style={page}>
@@ -84,7 +92,7 @@ export function LiveTranslationDemo() {
 
       <section style={panel}>
         <h2>Transcript</h2>
-        {transcript.length === 0 ? (
+        {transcript.length === 0 && !interimTranscript ? (
           <p>No transcript yet. Gemini sends these once it hears speech.</p>
         ) : (
           <ol>
@@ -99,6 +107,11 @@ export function LiveTranslationDemo() {
             ))}
           </ol>
         )}
+        {interimTranscript ? (
+          <p lang={interimTranscript.languageCode}>
+            <em>Hearing: {interimTranscript.text}</em>
+          </p>
+        ) : null}
       </section>
     </main>
   )

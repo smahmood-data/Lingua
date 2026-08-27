@@ -3,9 +3,18 @@ import type { TranscriptKind, TranscriptTurn } from './types'
 /**
  * Transcript assembly, kept pure so it can be exercised without a Live session.
  *
- * Gemini streams transcription in fragments. Fragments of the same kind are
- * appended to the open turn until the API reports the turn finished; nothing is
- * invented when the API sends no transcription at all.
+ * The Live API separates two things, and they must not be mixed:
+ *
+ * - `interimInputTranscription` is a speculative partial hypothesis, replaced
+ *   as the speaker keeps talking. It is a preview, not history.
+ * - `inputTranscription` / `outputTranscription` are, per the Live transcription
+ *   documentation, "the finalized transcript emitted when the speaker pauses,
+ *   the turn completes, or speech is finalized", and each one "represents the
+ *   model's authoritative transcription of that speech segment".
+ *
+ * So each finalised message is committed as its own turn. An earlier version
+ * concatenated them until `turnComplete`, which merged separate utterances into
+ * one turn whenever more than one was finalised inside a model turn.
  */
 export interface TranscriptFragment {
   kind: TranscriptKind
@@ -23,7 +32,8 @@ export interface TranscriptionLike {
 
 /**
  * Convert an API transcription into a fragment, or `null` when it carries no
- * text worth recording.
+ * text worth recording. Whitespace-only payloads are dropped so an empty
+ * segment cannot appear as a blank subtitle line.
  */
 export function normalizeTranscription(
   kind: TranscriptKind,
@@ -31,7 +41,7 @@ export function normalizeTranscription(
   fallbackLanguageCode: string,
 ): TranscriptFragment | null {
   const text = transcription.text ?? ''
-  if (text.length === 0) {
+  if (text.trim().length === 0) {
     return null
   }
 
@@ -39,17 +49,19 @@ export function normalizeTranscription(
     kind,
     text,
     languageCode: transcription.languageCode ?? fallbackLanguageCode,
-    isFinal: transcription.finished === true,
+    // These messages are the finalised segment. `finished` is only consulted so
+    // that an explicit `false` from the API is still honoured.
+    isFinal: transcription.finished !== false,
   }
 }
 
 /**
- * Append a fragment to the transcript.
+ * Commit a finalised segment.
  *
- * Fragment text is concatenated exactly as the API sends it — no spacing or
- * punctuation is added — so the transcript always reflects the model output.
+ * A segment that the API marked as not finished stays open, so a follow-up
+ * segment of the same kind extends it instead of starting a new line.
  */
-export function appendFragment(
+export function commitFragment(
   turns: readonly TranscriptTurn[],
   fragment: TranscriptFragment,
   id: string,

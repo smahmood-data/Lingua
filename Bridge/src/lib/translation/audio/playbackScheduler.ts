@@ -1,3 +1,4 @@
+import { isSessionError, sessionError } from '../errors'
 import { pcm16BytesToFloat } from './pcm'
 
 /** Head start given to the first chunk so it is never scheduled in the past. */
@@ -37,12 +38,22 @@ export async function createPlaybackScheduler(
   options: PlaybackSchedulerOptions,
 ): Promise<PlaybackScheduler> {
   const audioContext = new AudioContext({ sampleRate: options.sampleRate })
-  if (audioContext.state === 'suspended') {
-    await audioContext.resume()
-  }
 
-  const output = audioContext.createGain()
-  output.connect(audioContext.destination)
+  let output: GainNode
+  try {
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume()
+    }
+    output = audioContext.createGain()
+    output.connect(audioContext.destination)
+  } catch (cause) {
+    // resume() and node creation can both reject. Without this the context
+    // stays open for the lifetime of the page after a failed start.
+    if (audioContext.state !== 'closed') {
+      await audioContext.close().catch(() => undefined)
+    }
+    throw isSessionError(cause) ? cause : sessionError('unsupported-browser')
+  }
 
   const activeSources = new Set<AudioBufferSourceNode>()
   let nextStartTime = 0

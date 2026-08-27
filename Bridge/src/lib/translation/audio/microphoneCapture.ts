@@ -1,4 +1,4 @@
-import { microphoneError, sessionError } from '../errors'
+import { isSessionError, microphoneError, sessionError } from '../errors'
 import { CAPTURE_PROCESSOR_NAME, createCaptureWorkletUrl } from './captureWorklet'
 
 export interface MicrophoneCaptureOptions {
@@ -147,7 +147,7 @@ export async function startMicrophoneCapture(
     return { sampleRate, stop }
   } catch (cause) {
     await stop()
-    if (cause && typeof cause === 'object' && 'code' in cause) {
+    if (isSessionError(cause)) {
       throw cause
     }
     // The permission prompt already succeeded, so this is the audio stack

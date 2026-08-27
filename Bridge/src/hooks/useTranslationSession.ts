@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { TranslationSession, isSessionActive } from '../lib/translation'
 import type {
+  InterimTranscript,
   SessionError,
   SessionState,
   TranscriptTurn,
@@ -15,8 +16,10 @@ export interface UseTranslationSessionResult {
   direction: TranslationDirection
   /** Last failure, cleared when a new session starts. `null` while healthy. */
   error: SessionError | null
-  /** In-memory transcript for this browser session only. */
+  /** Finalised turns for this browser session only. Never persisted. */
   transcript: TranscriptTurn[]
+  /** Live partial caption while someone is speaking, or `null`. */
+  interimTranscript: InterimTranscript | null
   /** True while microphone and Live resources are held. */
   isActive: boolean
   /** Start a session. Repeated calls while active are ignored. */
@@ -65,6 +68,7 @@ export function useTranslationSession(
     direction: snapshot.direction,
     error: snapshot.error,
     transcript: snapshot.transcript,
+    interimTranscript: snapshot.interimTranscript,
     isActive: isSessionActive(snapshot.state),
     start,
     stop,

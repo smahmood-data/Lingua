@@ -8,13 +8,18 @@ const MESSAGES: Record<SessionErrorCode, string> = {
   'unsupported-browser':
     'This browser is missing the audio APIs Lingua needs. Try a current version of Chrome, Edge, Firefox, or Safari.',
   'token-request-failed':
-    'Could not reach the Lingua server for a session token. Check that the server is running and try again.',
+    'Could not get a usable session token from the Lingua server. Check that the server is running and try again.',
   'live-connection-failed':
     'Could not connect to the translation service. Check the connection and try again.',
   'live-disconnected':
     'The translation session ended unexpectedly. Start a new session to continue.',
   unknown: 'The translation session could not continue. Try again.',
 }
+
+/** Every code the session layer can report. Exported so the UI can exhaust it. */
+export const SESSION_ERROR_CODES = Object.keys(MESSAGES) as SessionErrorCode[]
+
+const CODE_SET = new Set<string>(SESSION_ERROR_CODES)
 
 export function sessionError(
   code: SessionErrorCode,
@@ -30,6 +35,31 @@ export function sessionError(
 }
 
 /**
+ * Identify one of our own errors.
+ *
+ * This checks the `code` against the known set rather than testing for the
+ * presence of a `code` property. A `DOMException` also carries `code` and
+ * `message`, but its `code` is a legacy *number*, so a structural check would
+ * let a raw DOMException through and break the advertised `SessionError`
+ * contract for anything reading `error.code`.
+ */
+export function isSessionError(value: unknown): value is SessionError {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const code = (value as { code?: unknown }).code
+  return typeof code === 'string' && CODE_SET.has(code)
+}
+
+/** Normalise anything thrown into a `SessionError`. */
+export function toSessionError(
+  cause: unknown,
+  fallback: SessionErrorCode = 'unknown',
+): SessionError {
+  return isSessionError(cause) ? cause : sessionError(fallback)
+}
+
+/**
  * Map a `getUserMedia` rejection onto a session error.
  *
  * Names come from the Media Capture spec rather than from message text, which
@@ -40,13 +70,6 @@ export function microphoneError(cause: unknown): SessionError {
 
   if (name === 'NotAllowedError' || name === 'SecurityError') {
     return sessionError('microphone-permission-denied')
-  }
-  if (
-    name === 'NotFoundError' ||
-    name === 'OverconstrainedError' ||
-    name === 'NotReadableError'
-  ) {
-    return sessionError('microphone-unavailable')
   }
   return sessionError('microphone-unavailable')
 }

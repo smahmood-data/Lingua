@@ -12,6 +12,7 @@ export type {
 } from './translationSession'
 
 export type {
+  InterimTranscript,
   SessionError,
   SessionErrorCode,
   SessionState,
@@ -22,10 +23,15 @@ export type {
 } from './types'
 
 export { canStart, isSessionActive } from './sessionMachine'
+export { SESSION_ERROR_CODES } from './errors'
 export { languagesForDirection } from './config'
 
 export {
   createLiveTokenProvider,
   parseLiveTokenResponse,
 } from './tokenProvider'
-export type { LiveToken, LiveTokenProvider } from './tokenProvider'
+export type {
+  LiveToken,
+  LiveTokenProvider,
+  LiveTokenRequest,
+} from './tokenProvider'
