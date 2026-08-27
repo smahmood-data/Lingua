@@ -32,12 +32,51 @@ export interface LiveTransportOptions {
   token: string
   model: string
   direction: TranslationDirection
+  /** Cancels a connection attempt that has not completed setup yet. */
+  signal: AbortSignal
   events: LiveTransportEvents
 }
 
 export interface LiveTransport {
   sendAudioChunk: (base64Pcm16: string) => void
   close: () => void
+}
+
+/**
+ * The SDK does not currently accept an AbortSignal for Live connections and
+ * does not expose its Session until setup completes. Capture the browser socket
+ * it creates synchronously so cancellation can close a pending handshake too.
+ *
+ * The constructor replacement exists only for the synchronous connect() call
+ * and is restored before control returns to the event loop.
+ */
+function connectWithSocketCapture<T>(
+  connect: () => Promise<T>,
+  onSocket: (socket: WebSocket) => void,
+): Promise<T> {
+  const NativeWebSocket = globalThis.WebSocket
+  if (typeof NativeWebSocket !== 'function') {
+    return connect()
+  }
+
+  const TrackingWebSocket = new Proxy(NativeWebSocket, {
+    construct(target, argumentsList) {
+      const socket = Reflect.construct(target, argumentsList, target) as WebSocket
+      onSocket(socket)
+      return socket
+    },
+  })
+
+  let installed = false
+  try {
+    globalThis.WebSocket = TrackingWebSocket as typeof WebSocket
+    installed = globalThis.WebSocket === TrackingWebSocket
+    return connect()
+  } finally {
+    if (installed) {
+      globalThis.WebSocket = NativeWebSocket
+    }
+  }
 }
 
 function readAudioParts(message: LiveServerMessage): Uint8Array[] {
@@ -74,6 +113,10 @@ function readAudioParts(message: LiveServerMessage): Uint8Array[] {
 export async function connectLiveTransport(
   options: LiveTransportOptions,
 ): Promise<LiveTransport> {
+  if (options.signal.aborted) {
+    throw sessionError('live-connection-failed')
+  }
+
   // Gemini Live Translate auto-detects the spoken language; only the target
   // language is configured.
   const { target } = languagesForDirection(options.direction)
@@ -85,82 +128,108 @@ export async function connectLiveTransport(
   let connected = false
   let abandoned = false
   let closedByClient = false
+  let pendingSocket: WebSocket | null = null
   let rejectConnect: (reason: unknown) => void = () => undefined
   const connectFailed = new Promise<never>((_, reject) => {
     rejectConnect = reject
   })
 
-  const failBeforeConnected = () => {
+  const abandonPendingConnection = () => {
     if (!connected) {
       abandoned = true
+      try {
+        pendingSocket?.close()
+      } catch {
+        // The browser may already be dispatching this socket's close event.
+      }
       rejectConnect(sessionError('live-connection-failed'))
     }
   }
 
-  const connectPromise = client.live.connect({
-    model: options.model,
-    config: {
-      responseModalities: [Modality.AUDIO],
-      inputAudioTranscription: {},
-      outputAudioTranscription: {},
-      translationConfig: {
-        targetLanguageCode: target,
-        // The demo runs on one laptop, so the translated target-language audio is
-        // audible to the microphone. Not echoing the target language keeps
-        // the model from translating its own output back again.
-        echoTargetLanguage: false,
-      },
+  const connectPromise = connectWithSocketCapture(
+    () =>
+      client.live.connect({
+        model: options.model,
+        config: {
+          responseModalities: [Modality.AUDIO],
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+          translationConfig: {
+            targetLanguageCode: target,
+            // The demo runs on one laptop, so the translated target-language audio is
+            // audible to the microphone. Not echoing the target language keeps
+            // the model from translating its own output back again.
+            echoTargetLanguage: false,
+          },
+        },
+        callbacks: {
+          onmessage: (message) => {
+            // The SDK calls this from an async handler and discards anything thrown,
+            // so a raw throw here would surface as an unhandled rejection and the
+            // rest of the message would be silently lost.
+            try {
+              const content = message.serverContent
+              if (!content) {
+                return
+              }
+
+              if (content.interrupted) {
+                options.events.onInterrupted()
+              }
+
+              for (const chunk of readAudioParts(message)) {
+                options.events.onAudio(chunk)
+              }
+
+              if (content.interimInputTranscription) {
+                options.events.onInterimTranscript(
+                  content.interimInputTranscription,
+                )
+              }
+              if (content.inputTranscription) {
+                options.events.onTranscript('source', content.inputTranscription)
+              }
+              if (content.outputTranscription) {
+                options.events.onTranscript(
+                  'translation',
+                  content.outputTranscription,
+                )
+              }
+
+              if (content.turnComplete) {
+                options.events.onTurnComplete()
+              }
+            } catch {
+              // One malformed message must not tear down a working session.
+            }
+          },
+          onerror: () => {
+            abandonPendingConnection()
+            if (connected) {
+              options.events.onError()
+            }
+          },
+          onclose: () => {
+            abandonPendingConnection()
+            if (connected) {
+              options.events.onClosed(closedByClient)
+            }
+          },
+        },
+      }),
+    (socket) => {
+      pendingSocket = socket
     },
-    callbacks: {
-      onmessage: (message) => {
-        // The SDK calls this from an async handler and discards anything thrown,
-        // so a raw throw here would surface as an unhandled rejection and the
-        // rest of the message would be silently lost.
-        try {
-          const content = message.serverContent
-          if (!content) {
-            return
-          }
+  )
 
-          if (content.interrupted) {
-            options.events.onInterrupted()
-          }
-
-          for (const chunk of readAudioParts(message)) {
-            options.events.onAudio(chunk)
-          }
-
-          if (content.interimInputTranscription) {
-            options.events.onInterimTranscript(content.interimInputTranscription)
-          }
-          if (content.inputTranscription) {
-            options.events.onTranscript('source', content.inputTranscription)
-          }
-          if (content.outputTranscription) {
-            options.events.onTranscript('translation', content.outputTranscription)
-          }
-
-          if (content.turnComplete) {
-            options.events.onTurnComplete()
-          }
-        } catch {
-          // One malformed message must not tear down a working session.
-        }
-      },
-      onerror: () => {
-        failBeforeConnected()
-        if (connected) {
-          options.events.onError()
-        }
-      },
-      onclose: () => {
-        failBeforeConnected()
-        if (connected) {
-          options.events.onClosed(closedByClient)
-        }
-      },
-    },
-  })
+  const abortConnect = () => {
+    abandonPendingConnection()
+  }
+  if (options.signal.aborted) {
+    abortConnect()
+  } else {
+    options.signal.addEventListener('abort', abortConnect, { once: true })
+  }
 
   // If we give up first, close the session should the SDK resolve afterwards.
   void connectPromise.then(
@@ -177,10 +246,7 @@ export async function connectLiveTransport(
   )
 
   const timeout = setTimeout(() => {
-    if (!connected) {
-      abandoned = true
-      rejectConnect(sessionError('live-connection-failed'))
-    }
+    abandonPendingConnection()
   }, CONNECT_TIMEOUT_MS)
 
   let session: Session
@@ -194,6 +260,7 @@ export async function connectLiveTransport(
     throw sessionError('live-connection-failed')
   } finally {
     clearTimeout(timeout)
+    options.signal.removeEventListener('abort', abortConnect)
   }
 
   return {

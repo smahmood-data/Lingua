@@ -1,5 +1,5 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 // The Express server from issue #1 listens on the port in `.env.example`.
 // Proxying keeps `/api/live-token` same-origin in development, so the browser
@@ -16,5 +16,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  // Scope the run to this package's sources. Without it vitest walks up to the
+  // repository root and tries to load the backend's compiled `dist` output.
+  test: {
+    root: import.meta.dirname,
+    include: ['src/**/*.test.ts'],
   },
 })
