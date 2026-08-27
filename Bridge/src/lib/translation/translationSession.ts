@@ -76,7 +76,10 @@ export class TranslationSession {
   private playback: PlaybackScheduler | null = null
   private transport: LiveTransport | null = null
   private abortController: AbortController | null = null
-  private teardownPromise: Promise<void> | null = null
+  private startupPromise: Promise<void> | null = null
+  private shutdownPromise: Promise<void> | null = null
+  private resourceTeardownPromise: Promise<void> | null = null
+  private disposePromise: Promise<void> | null = null
 
   private generation = 0
   private turnCounter = 0
@@ -117,13 +120,20 @@ export class TranslationSession {
    * repeated clicks cannot open a second microphone or Live connection.
    */
   async start(direction?: TranslationDirection): Promise<void> {
-    // A rapid Stop -> Start (or direction switch) must finish releasing the
-    // previous microphone and playback graph before opening replacements.
-    if (this.teardownPromise) {
-      await this.teardownPromise
+    // Remember the lifecycle version before waiting. A later stop (including
+    // React unmount cleanup) invalidates this queued request so it cannot wake
+    // up after teardown and reopen resources without an owner.
+    const requestGeneration = this.generation
+    const cleanupPromise = this.shutdownPromise ?? this.resourceTeardownPromise
+    if (cleanupPromise) {
+      await cleanupPromise
     }
 
-    if (this.disposed || !canStart(this.state)) {
+    if (
+      this.disposed ||
+      requestGeneration !== this.generation ||
+      !canStart(this.state)
+    ) {
       return
     }
 
@@ -140,6 +150,95 @@ export class TranslationSession {
     const abortController = new AbortController()
     this.abortController = abortController
 
+    // Register the whole attempt before its first await. stop() can then wait
+    // for resources that are still local to an asynchronous factory, not just
+    // the capture/transport fields that have already been assigned.
+    const startupPromise = this.startAttempt(
+      generation,
+      abortController,
+      this.direction,
+    )
+    this.startupPromise = startupPromise
+
+    try {
+      await startupPromise
+    } finally {
+      if (this.startupPromise === startupPromise) {
+        this.startupPromise = null
+      }
+    }
+  }
+
+  /** Stop the session and release every resource. Safe to call repeatedly. */
+  async stop(): Promise<void> {
+    this.generation += 1
+    this.applyEvent('STOP')
+    await this.shutdown()
+    this.transcript = finalizeOpenTurns(this.transcript)
+    this.interimTranscript = null
+    this.emit()
+  }
+
+  /**
+   * Select a translation direction, stopping the current session first.
+   * Starting remains an explicit user action so changing the selector never
+   * opens the microphone unexpectedly.
+   */
+  async setDirection(direction: TranslationDirection): Promise<void> {
+    if (this.disposed || direction === this.direction) {
+      return
+    }
+
+    // Store the latest request immediately. Concurrent selector changes then
+    // converge on the user's last choice while all callers share teardown.
+    this.direction = direction
+    if (
+      isSessionActive(this.state) ||
+      this.shutdownPromise ||
+      this.resourceTeardownPromise
+    ) {
+      await this.stop()
+      return
+    }
+
+    this.emit()
+  }
+
+  /** Stop and drop all subscribers. Call from a component unmount. */
+  async dispose(): Promise<void> {
+    if (this.disposePromise) {
+      await this.disposePromise
+      return
+    }
+    if (this.disposed) {
+      return
+    }
+    // Set this before awaiting stop so a queued start cannot win the microtask
+    // race at the end of teardown.
+    this.disposed = true
+    const disposePromise = (async () => {
+      try {
+        await this.stop()
+      } finally {
+        this.listeners.clear()
+      }
+    })()
+    this.disposePromise = disposePromise
+    await disposePromise
+  }
+
+  /** Clear the in-memory transcript. Nothing is persisted anywhere. */
+  clearTranscript(): void {
+    this.transcript = []
+    this.interimTranscript = null
+    this.emit()
+  }
+
+  private async startAttempt(
+    generation: number,
+    abortController: AbortController,
+    direction: TranslationDirection,
+  ): Promise<void> {
     try {
       // Create/resume playback while start() is still running from the click.
       // Deferring this until after microphone permission, token fetch, and the
@@ -179,7 +278,7 @@ export class TranslationSession {
 
       const token = await this.tokenProvider({
         signal: abortController.signal,
-        direction: this.direction,
+        direction,
       })
       if (this.isSuperseded(generation)) {
         return
@@ -188,7 +287,8 @@ export class TranslationSession {
       const transport = await connectLiveTransport({
         token: token.token,
         model: this.modelOverride ?? token.model ?? DEFAULT_LIVE_MODEL,
-        direction: this.direction,
+        direction,
+        signal: abortController.signal,
         events: {
           onAudio: (pcm16) => {
             if (!this.isSuperseded(generation)) {
@@ -244,54 +344,6 @@ export class TranslationSession {
       }
       await this.fail(cause, generation)
     }
-  }
-
-  /** Stop the session and release every resource. Safe to call repeatedly. */
-  async stop(): Promise<void> {
-    this.generation += 1
-    this.applyEvent('STOP')
-    await this.teardown()
-    this.transcript = finalizeOpenTurns(this.transcript)
-    this.interimTranscript = null
-    this.emit()
-  }
-
-  /**
-   * Select a translation direction, stopping the current session first.
-   * Starting remains an explicit user action so changing the selector never
-   * opens the microphone unexpectedly.
-   */
-  async setDirection(direction: TranslationDirection): Promise<void> {
-    if (this.disposed || direction === this.direction) {
-      return
-    }
-
-    // Store the latest request immediately. Concurrent selector changes then
-    // converge on the user's last choice while all callers share teardown.
-    this.direction = direction
-    if (isSessionActive(this.state)) {
-      await this.stop()
-      return
-    }
-
-    this.emit()
-  }
-
-  /** Stop and drop all subscribers. Call from a component unmount. */
-  async dispose(): Promise<void> {
-    if (this.disposed) {
-      return
-    }
-    await this.stop()
-    this.disposed = true
-    this.listeners.clear()
-  }
-
-  /** Clear the in-memory transcript. Nothing is persisted anywhere. */
-  clearTranscript(): void {
-    this.transcript = []
-    this.interimTranscript = null
-    this.emit()
   }
 
   private isSuperseded(generation: number): boolean {
@@ -369,16 +421,45 @@ export class TranslationSession {
     this.generation += 1
     this.error = toSessionError(cause)
     this.applyEvent('FAIL')
-    await this.teardown()
+    await this.teardownResources()
     this.transcript = finalizeOpenTurns(this.transcript)
     this.interimTranscript = null
     this.emit()
   }
 
-  /** The single cleanup path. Every field it touches ends up null. */
-  private async teardown(): Promise<void> {
-    if (this.teardownPromise) {
-      await this.teardownPromise
+  /**
+   * Cancel an active start, release assigned resources, and wait for factories
+   * that have not returned yet to clean up their local resources.
+   */
+  private async shutdown(): Promise<void> {
+    if (this.shutdownPromise) {
+      await this.shutdownPromise
+      return
+    }
+
+    const startupPromise = this.startupPromise
+    const shutdownPromise = (async () => {
+      await this.teardownResources()
+      await startupPromise?.catch(() => undefined)
+      // A startup step can finish between the first snapshot and its
+      // supersession check. Sweep once more before allowing another start.
+      await this.teardownResources()
+    })()
+    this.shutdownPromise = shutdownPromise
+
+    try {
+      await shutdownPromise
+    } finally {
+      if (this.shutdownPromise === shutdownPromise) {
+        this.shutdownPromise = null
+      }
+    }
+  }
+
+  /** The single assigned-resource cleanup path. Every field ends up null. */
+  private async teardownResources(): Promise<void> {
+    if (this.resourceTeardownPromise) {
+      await this.resourceTeardownPromise
       return
     }
 
@@ -391,16 +472,19 @@ export class TranslationSession {
     const teardownPromise = (async () => {
       abortController?.abort()
       transport?.close()
-      await capture?.stop()
-      await playback?.dispose()
+      // Attempt both cleanups even if one browser implementation rejects.
+      await Promise.allSettled([
+        Promise.resolve().then(() => capture?.stop()),
+        Promise.resolve().then(() => playback?.dispose()),
+      ])
     })()
-    this.teardownPromise = teardownPromise
+    this.resourceTeardownPromise = teardownPromise
 
     try {
       await teardownPromise
     } finally {
-      if (this.teardownPromise === teardownPromise) {
-        this.teardownPromise = null
+      if (this.resourceTeardownPromise === teardownPromise) {
+        this.resourceTeardownPromise = null
       }
     }
   }
