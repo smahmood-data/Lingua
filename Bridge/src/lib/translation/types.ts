@@ -1,14 +1,15 @@
 /**
  * Public contracts for the live translation pipeline.
  *
- * Issue #1 owns the shared cross-layer types for the project. Until that lands,
- * these local definitions keep the boundary small and easy to re-point: the UI
- * (#4) and the summary flow (#5) should import from `src/lib/translation`
- * rather than from the individual modules underneath it.
+ * Issue #1 owns the shared cross-layer types for the project. The live pipeline
+ * keeps its finer-grained session and caption types here; its direction type is
+ * re-exported from the shared contract below. The UI (#4) and summary flow (#5)
+ * should import from `src/lib/translation` rather than individual modules.
  */
 
-/** Translation direction. Issue #2 ships `ur-to-en`; #3 owns the direction toggle. */
-export type TranslationDirection = 'ur-to-en' | 'en-to-ur'
+/** Shared API direction contract. Issue #2 ships `ur-to-en`; #3 owns the toggle. */
+import type { TranslationDirection } from '../../types'
+export type { TranslationDirection }
 
 /**
  * Session lifecycle states.

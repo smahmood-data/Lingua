@@ -6,8 +6,7 @@ import type { TranslationDirection } from './types'
  * Adapter for the ephemeral-token endpoint owned by Issue #1.
  *
  * This is the only file that knows the wire shape of `/api/live-token`. It is
- * written against the contract on the `feat/1-secure-gemini-backend` branch as
- * of this change, which is not merged and has no pull request yet:
+ * written against the contract now provided by the merged issue #1 backend:
  *
  *   GET /api/live-token?direction=ur-to-en
  *   -> { token, expiresAt, newSessionExpiresAt, model, direction }

@@ -28,43 +28,37 @@ Misunderstanding detection is a stretch goal. Authentication, a database, call i
 
 ## Current status
 
-The repository contains a React + TypeScript + Vite client in [`Bridge/`](./Bridge). The Urdu → English live audio pipeline (microphone capture, PCM conversion, Gemini Live transport, streamed playback, and transcript events) is implemented behind the `useTranslationSession` hook and is documented in the [frontend README](./Bridge/README.md). It cannot run end to end until the server serves `GET /api/live-token`. The Node/Express server, the reverse translation direction, and the Lingua UI are not implemented yet. The directory keeps its earlier project name for now so the team can avoid a disruptive rename during the hackathon.
+The repository contains a React + TypeScript + Vite frontend in [`Bridge/`](./Bridge) and a TypeScript Express backend in [`backend/`](./backend). Issue #1 provides secure ephemeral Gemini Live tokens and a validated structured-summary endpoint. Issue #2 adds the Urdu → English live audio pipeline—microphone capture, PCM conversion, Gemini Live transport, streamed playback, and transcript events—behind the `useTranslationSession` hook. The developer harness is documented in the [frontend README](./Bridge/README.md); real end-to-end translation still needs a valid Gemini credential and browser microphone access.
 
-## Planned architecture
+## Architecture & Security
 
 ```text
 Browser (React + Vite)
-  ├─ microphone capture
-  ├─ translated audio playback
-  ├─ live subtitles and transcript state
-  └─ setup, conversation, and summary screens
-          │
-          ├── GET /api/live-token
-          │      └─ creates a short-lived Gemini Live token
-          │
-          └── POST /api/summarize
-                 └─ validates transcript → Gemini structured output
-
-Gemini Live Translate
-  └─ low-latency speech-to-speech translation
-
-Gemini Flash
-  └─ end-of-conversation extraction and preferred-language summary
+  ├─ microphone capture, translated audio playback, and transcript state
+  └─ GET /api/live-token → short-lived constrained Gemini Live token
+     POST /api/summarize → validated Gemini structured output
 ```
 
-The intended stack is React, TypeScript, Vite, Node.js, Express, the official `@google/genai` SDK, and schema validation. There is no MongoDB in the MVP because the demo does not require durable accounts or conversation storage.
-
-As of August 27, 2026, Google's documentation identifies `gemini-3.5-live-translate-preview` for dedicated real-time speech translation and documents ephemeral tokens for direct browser Live API connections. Model IDs marked as preview can change, so verify the exact ID in Google AI Studio before the demo.
+The Gemini API key remains on the backend. The browser receives only a short-lived Live API token, and transcript summaries are validated before being returned to the frontend.
 
 ## Local setup
 
-Prerequisites:
+Prerequisites: Node.js 20.19 or newer, npm, and a Gemini API key for authenticated backend integration tests and live requests.
 
-- Node.js 20.19 or newer (Vite 8 also supports Node.js 22.12+)
-- npm
-- A Gemini API key for the teammate implementing the server integration
+```bash
+cd backend
+npm ci
+cp .env.example .env
+# Edit .env and set GEMINI_API_KEY from Google AI Studio.
+# Never commit .env or place the key in a VITE_* variable.
+npm run dev
+```
 
-Run the existing frontend:
+Backend commands: `npm run check`, `npm run build`, `npm test`, and `npm start`.
+
+`npm test` verifies the local HTTP architecture without credentials. With `GEMINI_API_KEY`, it also attempts Live token and structured-summary requests; the summary check depends on available API quota.
+
+In a second terminal:
 
 ```bash
 cd Bridge
@@ -72,44 +66,19 @@ npm ci
 npm run dev
 ```
 
-Validate the current frontend:
-
-```bash
-cd Bridge
-npm run lint
-npm run build
-```
-
-When the Node/Express server is added, it will have its own `package.json` and lockfile. Teammates will then run `npm ci` from that server directory as well; Express and the Gemini SDK will be installed from the lockfile automatically.
-
-When the server is added, copy `.env.example` to `.env` and add your own key. Never put a real key in a `VITE_*` variable because Vite exposes those values to the browser bundle.
+Validate the frontend with `npm run lint` and `npm run build` from `Bridge/`.
 
 ## Structured summary contract
 
-The transcript-analysis endpoint should return a validated object shaped like this:
-
-```json
-{
-  "summary": "A short summary in the user's preferred language.",
-  "appointments": [],
-  "deadlines": [],
-  "instructions": [],
-  "locations": [],
-  "requiredDocuments": [],
-  "decisions": [],
-  "clarifications": []
-}
-```
-
-Missing information should produce an empty array, not a fabricated value. The server must validate model output before returning it to the UI.
+The transcript-analysis endpoint returns a validated object containing `summary`, `appointments`, `deadlines`, `instructions`, `locations`, `documents`, `decisions`, `clarifications`, and `nextSteps`. Missing information produces an empty array, not a fabricated value.
 
 ## Documentation
 
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — system architecture, user journey, runtime sequences, summary flow, and issue dependencies
-- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — ordered four-hour prototype backlog, dependencies, demo script, and submission checklist
-- [`docs/REPOSITORY_SETTINGS.md`](./docs/REPOSITORY_SETTINGS.md) — owner-only GitHub protection and merge settings
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — branches, commits, pull requests, and team workflow
-- [`AI_USAGE.md`](./AI_USAGE.md) — transparent record of AI-assisted work
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) - system architecture, user journey, runtime sequences, summary flow, and issue dependencies
+- [`docs/ROADMAP.md`](./docs/ROADMAP.md) - ordered prototype backlog, dependencies, demo script, and submission checklist
+- [`docs/REPOSITORY_SETTINGS.md`](./docs/REPOSITORY_SETTINGS.md) - owner-only GitHub protection and merge settings
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) - branches, commits, pull requests, and team workflow
+- [`AI_USAGE.md`](./AI_USAGE.md) - transparent record of AI-assisted work
 
 ## Product principles
 
@@ -123,7 +92,7 @@ Missing information should produce an empty array, not a fabricated value. The s
 
 - [Live translation](https://ai.google.dev/gemini-api/docs/live-api/live-translate)
 - [Live API overview](https://ai.google.dev/gemini-api/docs/live-api)
-- [Live transcription and ephemeral tokens](https://ai.google.dev/gemini-api/docs/live-api/live-transcribe)
+- [Ephemeral tokens](https://ai.google.dev/gemini-api/docs/live-api/ephemeral-tokens)
 - [Structured outputs](https://ai.google.dev/gemini-api/docs/structured-output)
 
 ## License

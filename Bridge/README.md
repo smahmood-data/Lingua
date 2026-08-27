@@ -18,7 +18,7 @@ npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite. The current branch contains the frontend starter; Gemini and the Node/Express server are added through the implementation issues.
+Open the local URL printed by Vite. The live harness uses the Node/Express backend in `../backend`, which must be running separately for token requests.
 
 ## Checks
 
@@ -27,7 +27,7 @@ npm run lint
 npm run build
 ```
 
-Do not put Gemini credentials in frontend code or in a `VITE_*` variable. When the server is added, its dependencies will be installed with `npm ci` from the server directory and its key will remain server-side.
+Do not put Gemini credentials in frontend code or in a `VITE_*` variable. The backend dependencies are installed with `npm ci` from `../backend`, and its key remains server-side.
 
 ## Live translation (issue #2)
 
@@ -63,47 +63,41 @@ Nothing is persisted: the transcript exists only for the current page load.
 
 ### Dependency on the server
 
-The browser connects to Gemini Live with a short-lived ephemeral token from
-`GET /api/live-token`, which issue #1 owns. The long-lived `GEMINI_API_KEY` stays
-on the server and is never read by frontend code. `vite.config.ts` proxies `/api`
-to `http://localhost:3001` in development, so no frontend environment variable is
-needed. A deployment that serves the API from another origin should pass an
-absolute URL to `createLiveTokenProvider()` rather than add a build-time variable.
+The browser connects to Gemini Live with a short-lived ephemeral token from the
+merged issue #1 backend's `GET /api/live-token`. The long-lived `GEMINI_API_KEY`
+stays on the server and is never read by frontend code. `vite.config.ts` proxies
+`/api` to `http://localhost:3001` in development, so no frontend environment
+variable is needed. A deployment that serves the API from another origin should
+pass an absolute URL to `createLiveTokenProvider()` rather than add a build-time
+variable.
 
-`src/lib/translation/tokenProvider.ts` is the only file that knows the wire
-shape. It is written against the contract on the unmerged
-`feat/1-secure-gemini-backend` branch:
+`src/lib/translation/tokenProvider.ts` is the only frontend file that knows the
+wire shape. It consumes the merged issue #1 contract:
 
 ```
 GET /api/live-token?direction=ur-to-en
 -> { token, expiresAt, newSessionExpiresAt, model, direction }
 ```
 
-`direction` is required — that route answers 400 without it. The `token` value
-must start with `auth_tokens/`: `@google/genai` decides how to authenticate from
-that prefix alone and sends anything else as a plain API key in the WebSocket
-URL, so the provider rejects non-ephemeral values instead of forwarding them.
+The frontend always sends a canonical `direction` value. The backend also accepts
+the legacy `ur-en`/`en-ur` spellings for compatibility. The `token` value must
+start with `auth_tokens/`: `@google/genai` decides how to authenticate from that
+prefix alone and sends anything else as a plain API key in the WebSocket URL, so
+the provider rejects non-ephemeral values instead of forwarding them.
 
-Three things must be confirmed on the first real run, and none can be verified
-without a live token:
+The merged contract and configuration now line up:
 
 1. **API version.** `LIVE_API_VERSION` in `config.ts` is `v1beta`, matching the
-   Live Translate documentation and the version the issue #1 server mints tokens
-   on. `@google/genai` 2.19.0 still logs "The SDK's ephemeral token support is in
-   v1alpha only" — that warning is cosmetic here, since the SDK selects the
-   constrained ephemeral method from the token prefix regardless of version. If
-   the handshake fails, flip the constant to `v1alpha` and retry.
-2. **Locked translation config.** The Live Translate docs say `translationConfig`
-   should be set in the server's token constraints and is locked against the
-   client by default, unless the server sends `lock_additional_fields: []`. The
-   issue #1 branch currently sends neither, so the client's `translationConfig`
-   may be rejected. The session will surface this as a recoverable
-   `live-connection-failed` rather than hanging.
-3. **Model.** The issue #1 branch defaults to `models/gemini-3.1-flash-live-preview`
-   with a translation system instruction, while the root `.env.example` and this
-   client's fallback use `gemini-3.5-live-translate-preview` with
-   `translationConfig`. The server's model wins when it sends one. The team needs
-   to settle on one approach.
+   Live Translate and ephemeral-token contract. `@google/genai` 2.19.0 may log
+   an experimental-support warning for `v1beta`, but it still selects the
+   constrained WebSocket method from the `auth_tokens/` prefix.
+2. **Locked translation config.** The backend constrains `targetLanguageCode`,
+   transcription, audio, and `echoTargetLanguage` in the token's
+   `bidiGenerateContentSetup`. The client sends the same translation settings;
+   the server constraint remains authoritative.
+3. **Model.** The backend template, backend fallback, and frontend fallback use
+   `gemini-3.5-live-translate-preview`, the dedicated Live Translate model. The
+   server's returned `model` is used when present.
 
 ### Manual test
 
@@ -112,7 +106,7 @@ compiled out of production builds and should be removed once the interpreter UI
 in issue #4 can drive a session. Headphones are recommended so the translated
 audio is not picked up by the microphone again.
 
-1. Start the server with a valid `GEMINI_API_KEY`, then `npm run dev` here.
+1. Start `../backend` with a valid `GEMINI_API_KEY`, then run `npm run dev` here.
 2. Open `/?live=1` and select **Start session**.
 3. Grant microphone access and speak a short Urdu phrase.
 4. Confirm English audio plays and transcript lines appear.

@@ -5,7 +5,8 @@ import type { TranslationDirection } from './types'
  *
  * The server is the source of truth: the ephemeral token from #1 is expected to
  * be constrained to a model, and `/api/live-token` may return that model id. This
- * constant is only the fallback, and mirrors `GEMINI_LIVE_MODEL` in `.env.example`.
+ * constant is only the fallback, and mirrors `GEMINI_LIVE_MODEL` in the backend
+ * environment template.
  * Preview model ids change — confirm in Google AI Studio before the demo.
  */
 export const DEFAULT_LIVE_MODEL = 'gemini-3.5-live-translate-preview'
