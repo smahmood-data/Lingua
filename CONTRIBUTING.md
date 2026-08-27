@@ -77,7 +77,12 @@ Before submission:
 ```bash
 git status --short
 git shortlog -sne --all
-git grep -nE 'AIza[0-9A-Za-z_-]{20,}|GEMINI_API_KEY=[^r]'
+secret_name='GEMINI_API_KEY'
+secret_pattern="AIza[0-9A-Za-z_-]{20,}|${secret_name}="
+if git grep -nE "$secret_pattern" -- ':!.env.example' ':!**/.env.example'; then
+  echo "Potential credential found; inspect the matches before continuing." >&2
+  exit 1
+fi
 cd Bridge && npm run lint && npm run build
 ```
 
