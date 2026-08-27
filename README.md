@@ -28,7 +28,9 @@ Misunderstanding detection is a stretch goal. Authentication, a database, call i
 
 ## Current status
 
-The repository currently contains a React + TypeScript + Vite starter in [`Bridge/`](./Bridge). The live audio flow, Gemini integration, server, and Lingua UI are not implemented yet. The directory keeps its earlier project name for now so the team can avoid a disruptive rename during the hackathon.
+The repository contains a React + TypeScript + Vite frontend in [`Bridge/`](./Bridge) and a Node + Express server in [`server/`](./server). The directory keeps its earlier project name for now so the team can avoid a disruptive rename during the hackathon.
+
+The server exposes `POST /api/summarize`, and [`Bridge/src/lingua/summary/`](./Bridge/src/lingua/summary) holds the session transcript and the summary request state machine. The live audio flow, `GET /api/live-token`, and the Lingua screens are not implemented yet; the summary state machine is ready for the conversation UI to render.
 
 ## Planned architecture
 
@@ -64,7 +66,17 @@ Prerequisites:
 - npm
 - A Gemini API key for the teammate implementing the server integration
 
-Run the existing frontend:
+Copy `.env.example` to `.env` and add your own key. Never put a real key in a `VITE_*` variable, because Vite inlines those values into the browser bundle.
+
+Run the server. It is the only process that holds the key:
+
+```bash
+cd server
+npm ci
+npm run dev
+```
+
+Run the frontend in a second terminal. Vite proxies `/api` to the server, so the browser never calls Google directly:
 
 ```bash
 cd Bridge
@@ -72,17 +84,13 @@ npm ci
 npm run dev
 ```
 
-Validate the current frontend:
+Validate either package from its own directory:
 
 ```bash
-cd Bridge
 npm run lint
+npm test
 npm run build
 ```
-
-When the Node/Express server is added, it will have its own `package.json` and lockfile. Teammates will then run `npm ci` from that server directory as well; Express and the Gemini SDK will be installed from the lockfile automatically.
-
-When the server is added, copy `.env.example` to `.env` and add your own key. Never put a real key in a `VITE_*` variable because Vite exposes those values to the browser bundle.
 
 ## Structured summary contract
 
