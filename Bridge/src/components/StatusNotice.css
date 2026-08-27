@@ -1,0 +1,48 @@
+/* A single calm strip for problems — clear, actionable, never alarming. */
+.status-notice {
+  width: min(100% - 40px, 800px);
+  margin: 20px auto 0;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-inline-start-width: 3px;
+  border-radius: var(--radius-m);
+  background: var(--paper-raised);
+}
+
+.notice-warning {
+  border-color: var(--warn-edge);
+  background: var(--warn-bg);
+}
+
+.notice-danger {
+  border-color: var(--danger-edge);
+  background: var(--danger-bg);
+}
+
+.notice-title {
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 640;
+}
+
+.notice-warning .notice-title {
+  color: var(--warn-ink);
+}
+
+.notice-danger .notice-title {
+  color: var(--danger-ink);
+}
+
+.notice-detail {
+  margin-top: 2px;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 560px) {
+  .status-notice {
+    width: min(100% - 32px, 800px);
+    margin-top: 16px;
+  }
+}
