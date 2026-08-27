@@ -105,7 +105,7 @@ export async function connectLiveTransport(
       outputAudioTranscription: {},
       translationConfig: {
         targetLanguageCode: target,
-        // The demo runs on one laptop, so the translated English audio is
+        // The demo runs on one laptop, so the translated target-language audio is
         // audible to the microphone. Not echoing the target language keeps
         // the model from translating its own output back again.
         echoTargetLanguage: false,

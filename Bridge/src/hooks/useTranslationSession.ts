@@ -12,7 +12,7 @@ import type {
 export interface UseTranslationSessionResult {
   /** `connecting`, `listening`, `translating`, `stopped`, or `error`. */
   state: SessionState
-  /** Active direction. Issue #2 ships `ur-to-en`. */
+  /** Selected direction for the next or current session. */
   direction: TranslationDirection
   /** Last failure, cleared when a new session starts. `null` while healthy. */
   error: SessionError | null
@@ -24,6 +24,8 @@ export interface UseTranslationSessionResult {
   isActive: boolean
   /** Start a session. Repeated calls while active are ignored. */
   start: (direction?: TranslationDirection) => Promise<void>
+  /** Select a direction, stopping an active session before it changes. */
+  setDirection: (direction: TranslationDirection) => Promise<void>
   /** Stop and release everything. Safe to call more than once. */
   stop: () => Promise<void>
   /** Drop the transcript without touching the session. */
@@ -60,6 +62,10 @@ export function useTranslationSession(
     (direction?: TranslationDirection) => session.start(direction),
     [session],
   )
+  const setDirection = useCallback(
+    (direction: TranslationDirection) => session.setDirection(direction),
+    [session],
+  )
   const stop = useCallback(() => session.stop(), [session])
   const clearTranscript = useCallback(() => session.clearTranscript(), [session])
 
@@ -71,6 +77,7 @@ export function useTranslationSession(
     interimTranscript: snapshot.interimTranscript,
     isActive: isSessionActive(snapshot.state),
     start,
+    setDirection,
     stop,
     clearTranscript,
   }

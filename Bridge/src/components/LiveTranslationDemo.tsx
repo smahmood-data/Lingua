@@ -1,21 +1,30 @@
 import type { CSSProperties } from 'react'
 import { useTranslationSession } from '../hooks/useTranslationSession'
-import type { SessionState } from '../lib/translation'
+import type { SessionState, TranslationDirection } from '../lib/translation'
 
 /**
- * Temporary harness for manually exercising the Urdu → English pipeline in a
+ * Temporary harness for manually exercising both translation directions in a
  * browser. It is intentionally plain: the real interpreter screen is Issue #4,
  * and this component should be deleted once that lands.
  *
  * Reachable at `/?live=1` — see `src/main.tsx`.
  */
 
-const STATE_LABELS: Record<SessionState, string> = {
-  connecting: 'Connecting…',
-  listening: 'Listening for Urdu',
-  translating: 'Playing English translation',
-  stopped: 'Stopped',
-  error: 'Error',
+const DIRECTION_LABELS: Record<
+  TranslationDirection,
+  { label: string; source: string; target: string }
+> = {
+  'ur-to-en': { label: 'Urdu → English', source: 'Urdu', target: 'English' },
+  'en-to-ur': { label: 'English → Urdu', source: 'English', target: 'Urdu' },
+}
+
+function stateLabel(state: SessionState, direction: TranslationDirection): string {
+  const languages = DIRECTION_LABELS[direction]
+  if (state === 'connecting') return 'Connecting…'
+  if (state === 'listening') return `Listening for ${languages.source}`
+  if (state === 'translating') return `Playing ${languages.target} translation`
+  if (state === 'error') return 'Error'
+  return 'Stopped'
 }
 
 const page: CSSProperties = {
@@ -49,22 +58,43 @@ export function LiveTranslationDemo() {
     transcript,
     interimTranscript,
     isActive,
+    direction,
     start,
+    setDirection,
     stop,
     clearTranscript,
   } = useTranslationSession()
 
   return (
     <main style={page}>
-      <h1>Urdu → English live translation</h1>
+      <h1>{DIRECTION_LABELS[direction].label} live translation</h1>
       <p>
-        Developer harness for issue #2. Speak Urdu into the laptop microphone and
-        the English translation plays through the speakers. Headphones are
-        recommended so the output is not picked up again by the microphone.
+        Developer harness for issues #2 and #3. Choose who is speaking, then start
+        the session. Headphones are recommended so translated output is not picked
+        up again by the microphone.
       </p>
 
       <div style={controls}>
-        <button type="button" onClick={() => void start()} disabled={isActive}>
+        <label>
+          Direction:{' '}
+          <select
+            value={direction}
+            onChange={(event) =>
+              void setDirection(event.target.value as TranslationDirection)
+            }
+          >
+            {Object.entries(DIRECTION_LABELS).map(([value, copy]) => (
+              <option key={value} value={value}>
+                {copy.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => void start(direction)}
+          disabled={isActive}
+        >
           Start session
         </button>
         <button type="button" onClick={() => void stop()} disabled={!isActive}>
@@ -78,7 +108,7 @@ export function LiveTranslationDemo() {
           Clear transcript
         </button>
         <span aria-live="polite">
-          <strong>Status:</strong> {STATE_LABELS[state]}
+          <strong>Status:</strong> {stateLabel(state, direction)}
         </span>
       </div>
 

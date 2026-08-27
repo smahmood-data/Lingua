@@ -10,6 +10,7 @@ import { connectLiveTransport, type LiveTransport } from './liveTransport'
 import {
   INITIAL_SESSION_STATE,
   canStart,
+  isSessionActive,
   nextSessionState,
   type SessionEvent,
 } from './sessionMachine'
@@ -42,7 +43,7 @@ import type {
 } from './types'
 
 export interface TranslationSessionOptions {
-  /** Defaults to Urdu → English, the direction Issue #2 delivers. */
+  /** Defaults to Urdu → English. */
   direction?: TranslationDirection
   /** Overrides the ephemeral-token source. Defaults to the Lingua server. */
   tokenProvider?: LiveTokenProvider
@@ -75,6 +76,7 @@ export class TranslationSession {
   private playback: PlaybackScheduler | null = null
   private transport: LiveTransport | null = null
   private abortController: AbortController | null = null
+  private teardownPromise: Promise<void> | null = null
 
   private generation = 0
   private turnCounter = 0
@@ -115,6 +117,12 @@ export class TranslationSession {
    * repeated clicks cannot open a second microphone or Live connection.
    */
   async start(direction?: TranslationDirection): Promise<void> {
+    // A rapid Stop -> Start (or direction switch) must finish releasing the
+    // previous microphone and playback graph before opening replacements.
+    if (this.teardownPromise) {
+      await this.teardownPromise
+    }
+
     if (this.disposed || !canStart(this.state)) {
       return
     }
@@ -133,8 +141,22 @@ export class TranslationSession {
     this.abortController = abortController
 
     try {
-      // Microphone first: an unsupported browser or a denied prompt then fails
-      // before a token is minted or a Live session is opened.
+      // Create/resume playback while start() is still running from the click.
+      // Deferring this until after microphone permission, token fetch, and the
+      // Live handshake can lose browser user activation and leave it suspended.
+      const playback = await createPlaybackScheduler({
+        sampleRate: OUTPUT_SAMPLE_RATE,
+        onPlaybackStart: () => this.onPlaybackChange(generation, 'OUTPUT_START'),
+        onPlaybackDrained: () => this.onPlaybackChange(generation, 'OUTPUT_END'),
+      })
+      if (this.isSuperseded(generation)) {
+        await playback.dispose()
+        return
+      }
+      this.playback = playback
+
+      // Capture still precedes token minting and the Live connection, so a
+      // denied permission fails before either network resource is opened.
       const capture = await startMicrophoneCapture({
         targetSampleRate: INPUT_SAMPLE_RATE,
         chunkMs: CAPTURE_CHUNK_MS,
@@ -162,17 +184,6 @@ export class TranslationSession {
       if (this.isSuperseded(generation)) {
         return
       }
-
-      const playback = await createPlaybackScheduler({
-        sampleRate: OUTPUT_SAMPLE_RATE,
-        onPlaybackStart: () => this.onPlaybackChange(generation, 'OUTPUT_START'),
-        onPlaybackDrained: () => this.onPlaybackChange(generation, 'OUTPUT_END'),
-      })
-      if (this.isSuperseded(generation)) {
-        await playback.dispose()
-        return
-      }
-      this.playback = playback
 
       const transport = await connectLiveTransport({
         token: token.token,
@@ -242,6 +253,27 @@ export class TranslationSession {
     await this.teardown()
     this.transcript = finalizeOpenTurns(this.transcript)
     this.interimTranscript = null
+    this.emit()
+  }
+
+  /**
+   * Select a translation direction, stopping the current session first.
+   * Starting remains an explicit user action so changing the selector never
+   * opens the microphone unexpectedly.
+   */
+  async setDirection(direction: TranslationDirection): Promise<void> {
+    if (this.disposed || direction === this.direction) {
+      return
+    }
+
+    // Store the latest request immediately. Concurrent selector changes then
+    // converge on the user's last choice while all callers share teardown.
+    this.direction = direction
+    if (isSessionActive(this.state)) {
+      await this.stop()
+      return
+    }
+
     this.emit()
   }
 
@@ -345,16 +377,32 @@ export class TranslationSession {
 
   /** The single cleanup path. Every field it touches ends up null. */
   private async teardown(): Promise<void> {
+    if (this.teardownPromise) {
+      await this.teardownPromise
+      return
+    }
+
     const { abortController, transport, capture, playback } = this
     this.abortController = null
     this.transport = null
     this.capture = null
     this.playback = null
 
-    abortController?.abort()
-    transport?.close()
-    await capture?.stop()
-    await playback?.dispose()
+    const teardownPromise = (async () => {
+      abortController?.abort()
+      transport?.close()
+      await capture?.stop()
+      await playback?.dispose()
+    })()
+    this.teardownPromise = teardownPromise
+
+    try {
+      await teardownPromise
+    } finally {
+      if (this.teardownPromise === teardownPromise) {
+        this.teardownPromise = null
+      }
+    }
   }
 
   private emit(): void {
