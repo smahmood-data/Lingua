@@ -1,4 +1,4 @@
-export type TranslationDirection = 'ur-en' | 'en-ur';
+export type TranslationDirection = 'ur-to-en' | 'en-to-ur';
 
 export type SessionState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
