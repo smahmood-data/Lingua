@@ -1,0 +1,241 @@
+[
+  {
+    "id": "doctor-appointment-01",
+    "name": "Doctor appointment with location and ID",
+    "note": "Straightforward clinic appointment with a required document.",
+    "transcript": [
+      {
+        "speaker": "user",
+        "originalText": "The clinic booked me for September 14, 2026 at 10:00 AM at City Hospital. I need to bring my photo ID.",
+        "timestamp": "2026-08-27T09:00:00Z"
+      }
+    ],
+    "expected": {
+      "appointments": [
+        {
+          "date": { "canonical": "2026-09-14", "aliases": ["September 14, 2026", "September 14 2026"] },
+          "time": { "canonical": "10:00 AM", "aliases": ["10 AM", "10am"] },
+          "location": { "canonical": "City Hospital", "aliases": ["the City Hospital"] },
+          "notes": { "canonical": "Bring photo ID", "aliases": ["bring my photo ID", "photo identification is required"] }
+        }
+      ],
+      "deadlines": [],
+      "instructions": [],
+      "locations": [],
+      "documents": [{ "canonical": "photo ID", "aliases": ["photo identification", "government-issued photo id"] }],
+      "decisions": [],
+      "clarifications": [],
+      "nextSteps": []
+    }
+  },
+  {
+    "id": "school-deadline-02",
+    "name": "School enrollment deadline",
+    "note": "A school office gives a deadline, instruction, and required documents.",
+    "transcript": [
+      {
+        "speaker": "model",
+        "originalText": "Please submit the enrollment form and your child's birth certificate to the school office by August 30, 2026.",
+        "timestamp": "2026-08-27T09:01:00Z"
+      }
+    ],
+    "expected": {
+      "appointments": [],
+      "deadlines": [{ "canonical": "August 30, 2026", "aliases": ["August 30 2026", "2026-08-30"] }],
+      "instructions": [{ "canonical": "Submit the enrollment form", "aliases": ["send in the enrollment form"] }],
+      "locations": [{ "canonical": "school office", "aliases": ["the school office"] }],
+      "documents": [{ "canonical": "child's birth certificate", "aliases": ["birth certificate"] }, { "canonical": "enrollment form" }],
+      "decisions": [],
+      "clarifications": [],
+      "nextSteps": []
+    }
+  },
+  {
+    "id": "landlord-visit-03",
+    "name": "Landlord repair visit",
+    "note": "Housing conversation with an appointment and a concrete next step.",
+    "transcript": [
+      {
+        "speaker": "user",
+        "originalText": "The landlord will come to inspect the leaking sink on Friday at 3 PM. I will leave the key with the front desk.",
+        "timestamp": "2026-08-27T09:02:00Z"
+      }
+    ],
+    "expected": {
+      "appointments": [{ "date": { "canonical": "Friday" }, "time": { "canonical": "3 PM", "aliases": ["3:00 PM", "3pm"] }, "location": null, "notes": { "canonical": "Inspect the leaking sink", "aliases": ["check the leaking sink"] } }],
+      "deadlines": [],
+      "instructions": [],
+      "locations": [{ "canonical": "front desk", "aliases": ["the front desk"] }],
+      "documents": [],
+      "decisions": [],
+      "clarifications": [],
+      "nextSteps": [{ "canonical": "Leave the key with the front desk", "aliases": ["leave the key at the front desk"] }]
+    }
+  },
+  {
+    "id": "bank-service-04",
+    "name": "Bank account service visit",
+    "note": "Multiple actionable facts in one service-office conversation.",
+    "transcript": [
+      {
+        "speaker": "model",
+        "originalText": "Your account meeting is on October 2, 2026 at 1:30 PM at the Main Street branch. Bring your bank card and proof of address. You must sign the updated form before October 5.",
+        "timestamp": "2026-08-27T09:03:00Z"
+      }
+    ],
+    "expected": {
+      "appointments": [{ "date": { "canonical": "October 2, 2026", "aliases": ["October 2 2026", "2026-10-02"] }, "time": { "canonical": "1:30 PM", "aliases": ["1 30 PM", "1:30pm"] }, "location": { "canonical": "Main Street branch", "aliases": ["Main Street bank branch"] }, "notes": { "canonical": "Account meeting", "aliases": ["meeting about the account"] } }],
+      "deadlines": [{ "canonical": "October 5", "aliases": ["October 5, 2026", "2026-10-05"] }],
+      "instructions": [{ "canonical": "Sign the updated form", "aliases": ["sign the new form"] }],
+      "locations": [],
+      "documents": [{ "canonical": "bank card" }, { "canonical": "proof of address", "aliases": ["address verification"] }, { "canonical": "updated form", "aliases": ["new form"] }],
+      "decisions": [],
+      "clarifications": [],
+      "nextSteps": []
+    }
+  },
+  {
+    "id": "government-appointment-05",
+    "name": "Government service appointment",
+    "note": "Government-office appointment with a document and arrival instruction.",
+    "transcript": [
+      {
+        "speaker": "user",
+        "originalText": "Please arrive at the passport office on November 8 at 9 AM. The appointment is for your residence permit renewal, and bring the renewal letter.",
+        "timestamp": "2026-08-27T09:04:00Z"
+      }
+    ],
+    "expected": {
+      "appointments": [{ "date": { "canonical": "November 8", "aliases": ["November 8, 2026"] }, "time": { "canonical": "9 AM", "aliases": ["9:00 AM", "9am"] }, "location": { "canonical": "passport office" }, "notes": { "canonical": "Residence permit renewal", "aliases": ["renew your residence permit"] } }],
+      "deadlines": [],
+      "instructions": [{ "canonical": "Arrive at the passport office", "aliases": ["go to the passport office"] }],
+      "locations": [],
+      "documents": [{ "canonical": "renewal letter" }],
+      "decisions": [],
+      "clarifications": [],
+      "nextSteps": []
+    }
+  },
+  {
+    "id": "small-talk-empty-06",
+    "name": "Small talk with no action",
+    "note": "No actionable information; useful for unsupported-fact measurement.",
+    "transcript": [
+      { "speaker": "user", "originalText": "Hello, how are you today? The weather is pleasant.", "timestamp": "2026-08-27T09:05:00Z" },
+      { "speaker": "model", "originalText": "I am well, thank you. It is nice to see you.", "timestamp": "2026-08-27T09:05:20Z" }
+    ],
+    "expected": { "appointments": [], "deadlines": [], "instructions": [], "locations": [], "documents": [], "decisions": [], "clarifications": [], "nextSteps": [] }
+  },
+  {
+    "id": "negation-passport-07",
+    "name": "Negated passport requirement",
+    "note": "The conversation explicitly says a passport is not needed.",
+    "transcript": [
+      { "speaker": "model", "originalText": "You do not need to bring your passport. Your national ID is enough for the visit.", "timestamp": "2026-08-27T09:06:00Z" }
+    ],
+    "expected": { "appointments": [], "deadlines": [], "instructions": [], "locations": [], "documents": [{ "canonical": "national ID", "aliases": ["national identification"] }], "decisions": [], "clarifications": [], "nextSteps": [] }
+  },
+  {
+    "id": "correction-date-08",
+    "name": "Corrected appointment date",
+    "note": "The original date is superseded by the corrected Thursday date.",
+    "transcript": [
+      { "speaker": "user", "originalText": "Come Tuesday at 2 PM — actually, Thursday at 2 PM. Thursday is the appointment date.", "timestamp": "2026-08-27T09:07:00Z" }
+    ],
+    "expected": { "appointments": [{ "date": { "canonical": "Thursday" }, "time": { "canonical": "2 PM", "aliases": ["2:00 PM", "2pm"] }, "location": null, "notes": null }], "deadlines": [], "instructions": [], "locations": [], "documents": [], "decisions": [{ "canonical": "Thursday is the appointment date", "aliases": ["the appointment is on Thursday"] }], "clarifications": [], "nextSteps": [] }
+  },
+  {
+    "id": "uncertain-time-09",
+    "name": "Unconfirmed possible meeting",
+    "note": "An uncertain possibility must not become a confirmed appointment.",
+    "transcript": [
+      { "speaker": "model", "originalText": "I may be able to see you around 3 PM, but I will confirm tomorrow.", "timestamp": "2026-08-27T09:08:00Z" }
+    ],
+    "expected": { "appointments": [], "deadlines": [], "instructions": [], "locations": [], "documents": [], "decisions": [], "clarifications": [{ "canonical": "Meeting time is not confirmed", "aliases": ["the 3 PM meeting is unconfirmed", "confirmation is pending"] }], "nextSteps": [{ "canonical": "Confirm tomorrow", "aliases": ["confirm the meeting tomorrow"] }] }
+  },
+  {
+    "id": "competing-dates-10",
+    "name": "Updated appointment date",
+    "note": "The final date is the actionable one; the originally discussed date is not expected.",
+    "transcript": [
+      { "speaker": "user", "originalText": "We originally discussed the 12th, but your appointment is now on the 14th at 11 AM.", "timestamp": "2026-08-27T09:09:00Z" }
+    ],
+    "expected": { "appointments": [{ "date": { "canonical": "14th", "aliases": ["the 14th", "14"] }, "time": { "canonical": "11 AM", "aliases": ["11:00 AM", "11am"] }, "location": null, "notes": null }], "deadlines": [], "instructions": [], "locations": [], "documents": [], "decisions": [], "clarifications": [], "nextSteps": [] }
+  },
+  {
+    "id": "unnamed-documents-11",
+    "name": "Unspecified documents",
+    "note": "The speaker references documents without naming them; the evaluator expects no invented document names.",
+    "transcript": [
+      { "speaker": "model", "originalText": "Bring the documents we discussed. If you cannot find them, call the office.", "timestamp": "2026-08-27T09:10:00Z" }
+    ],
+    "expected": { "appointments": [], "deadlines": [], "instructions": [{ "canonical": "Bring the documents discussed", "aliases": ["bring the documents we discussed"] }], "locations": [], "documents": [], "decisions": [], "clarifications": [{ "canonical": "Which documents to bring is unspecified", "aliases": ["the documents are not named", "documents are unspecified"] }], "nextSteps": [{ "canonical": "Call the office if the documents cannot be found", "aliases": ["call the office if you cannot find the documents"] }] }
+  },
+  {
+    "id": "urdu-school-12",
+    "name": "Urdu and English school conversation",
+    "note": "Bilingual school scenario with a date, place, instruction, and document.",
+    "preferredLanguage": "Urdu",
+    "transcript": [
+      { "speaker": "user", "originalText": "میٹنگ 20 ستمبر کو صبح دس بجے اسکول کے دفتر میں ہے۔ براہ کرم بچے کا پیدائش کا سرٹیفکیٹ لائیں۔", "translatedText": "The meeting is on September 20 at 10 AM in the school office. Please bring the child's birth certificate.", "timestamp": "2026-08-27T09:11:00Z" },
+      { "speaker": "model", "originalText": "The school office will register the student after checking the certificate.", "timestamp": "2026-08-27T09:11:20Z" }
+    ],
+    "expected": { "appointments": [{ "date": { "canonical": "September 20", "aliases": ["September 20, 2026"] }, "time": { "canonical": "10 AM", "aliases": ["10:00 AM"] }, "location": { "canonical": "school office" }, "notes": { "canonical": "School meeting", "aliases": ["meeting at the school"] } }], "deadlines": [], "instructions": [{ "canonical": "Bring the child's birth certificate", "aliases": ["bring a birth certificate for the child"] }], "locations": [], "documents": [{ "canonical": "child's birth certificate", "aliases": ["birth certificate"] }], "decisions": [], "clarifications": [], "nextSteps": [] }
+  },
+  {
+    "id": "urdu-clinic-13",
+    "name": "Urdu clinic instructions",
+    "note": "Bilingual doctor scenario where the output should preserve a fasting instruction.",
+    "preferredLanguage": "Urdu",
+    "transcript": [
+      { "speaker": "model", "originalText": "آپ کا ٹیسٹ پیر کو صبح آٹھ بجے ہوگا۔ ٹیسٹ سے پہلے کچھ نہ کھائیں۔", "translatedText": "Your test will be Monday at 8 AM. Do not eat before the test.", "timestamp": "2026-08-27T09:12:00Z" }
+    ],
+    "expected": { "appointments": [{ "date": { "canonical": "Monday" }, "time": { "canonical": "8 AM", "aliases": ["8:00 AM", "8am"] }, "location": null, "notes": { "canonical": "Medical test", "aliases": ["test"] } }], "deadlines": [], "instructions": [{ "canonical": "Do not eat before the test", "aliases": ["do not eat before your test", "fast before the test"] }], "locations": [], "documents": [], "decisions": [], "clarifications": [], "nextSteps": [] }
+  },
+  {
+    "id": "mixed-landlord-14",
+    "name": "Mixed-language housing decision",
+    "note": "Mixed Urdu/English landlord conversation with a confirmed repair decision.",
+    "transcript": [
+      { "speaker": "user", "originalText": "مالک نے کہا کہ heater کی مرمت کل ہوگی، and the rent will stay the same.", "translatedText": "The landlord said the heater will be repaired tomorrow, and the rent will stay the same.", "timestamp": "2026-08-27T09:13:00Z" }
+    ],
+    "expected": { "appointments": [], "deadlines": [], "instructions": [], "locations": [], "documents": [], "decisions": [{ "canonical": "Rent will stay the same", "aliases": ["the rent remains unchanged"] }], "clarifications": [], "nextSteps": [{ "canonical": "Repair the heater tomorrow", "aliases": ["the heater will be repaired tomorrow"] }] }
+  },
+  {
+    "id": "mixed-bank-15",
+    "name": "Bilingual bank documents",
+    "note": "Bilingual bank-office exchange with explicitly named documents and a deadline.",
+    "preferredLanguage": "English",
+    "transcript": [
+      { "speaker": "user", "originalText": "بینک نے کہا ہے کہ فارم جمع کرانے کی آخری تاریخ 5 اکتوبر ہے۔ Bring your utility bill and bank card.", "translatedText": "The bank says the deadline to submit the form is October 5. Bring your utility bill and bank card.", "timestamp": "2026-08-27T09:14:00Z" }
+    ],
+    "expected": { "appointments": [], "deadlines": [{ "canonical": "October 5", "aliases": ["October 5, 2026", "2026-10-05"] }], "instructions": [{ "canonical": "Bring your utility bill", "aliases": ["bring a utility bill"] }, { "canonical": "Bring your bank card", "aliases": ["bring the bank card"] }], "locations": [], "documents": [{ "canonical": "utility bill" }, { "canonical": "bank card" }], "decisions": [], "clarifications": [], "nextSteps": [{ "canonical": "Submit the form by October 5", "aliases": ["submit the form before October 5"] }] }
+  },
+  {
+    "id": "many-actions-16",
+    "name": "Several concrete action items",
+    "note": "Dense but explicit conversation covering most summary categories.",
+    "transcript": [
+      { "speaker": "model", "originalText": "We agreed on a school meeting for December 1 at 4 PM in Room 204. Email the teacher by November 25, bring the progress report, and follow up with the counselor next week.", "timestamp": "2026-08-27T09:15:00Z" }
+    ],
+    "expected": { "appointments": [{ "date": { "canonical": "December 1", "aliases": ["December 1, 2026"] }, "time": { "canonical": "4 PM", "aliases": ["4:00 PM", "4pm"] }, "location": { "canonical": "Room 204" }, "notes": { "canonical": "School meeting", "aliases": ["meeting with the school"] } }], "deadlines": [{ "canonical": "November 25", "aliases": ["November 25, 2026"] }], "instructions": [{ "canonical": "Email the teacher", "aliases": ["send an email to the teacher"] }], "locations": [], "documents": [{ "canonical": "progress report" }], "decisions": [{ "canonical": "School meeting agreed", "aliases": ["agreed on a school meeting"] }], "clarifications": [], "nextSteps": [{ "canonical": "Follow up with the counselor next week", "aliases": ["contact the counselor next week"] }] }
+  },
+  {
+    "id": "location-only-17",
+    "name": "Service office location only",
+    "note": "A location is actionable context, but no appointment or date is stated.",
+    "transcript": [
+      { "speaker": "user", "originalText": "The housing application is handled at the municipal service center. I have not selected a visit date yet.", "timestamp": "2026-08-27T09:16:00Z" }
+    ],
+    "expected": { "appointments": [], "deadlines": [], "instructions": [], "locations": [{ "canonical": "municipal service center" }], "documents": [], "decisions": [], "clarifications": [{ "canonical": "Visit date is not selected", "aliases": ["there is no visit date yet", "the date is not decided"] }], "nextSteps": [] }
+  },
+  {
+    "id": "clarification-next-step-18",
+    "name": "Open question and follow-up",
+    "note": "The conversation ends with an unresolved time and a clear follow-up action.",
+    "transcript": [
+      { "speaker": "model", "originalText": "The office can see you next week, but the exact time is still unknown. Call reception on Monday to confirm it.", "timestamp": "2026-08-27T09:17:00Z" }
+    ],
+    "expected": { "appointments": [], "deadlines": [], "instructions": [], "locations": [], "documents": [], "decisions": [], "clarifications": [{ "canonical": "Exact appointment time is unknown", "aliases": ["the exact time is not known", "time is still unknown"] }], "nextSteps": [{ "canonical": "Call reception on Monday", "aliases": ["call the receptionist Monday"] }] }
+  }
+]
