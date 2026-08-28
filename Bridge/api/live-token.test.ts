@@ -111,4 +111,32 @@ describe('Vercel live-token function', () => {
       },
     })
   })
+
+  it('accepts Norwegian Bokmål as a target language', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ name: 'auth_tokens/test-token' }),
+        { status: 200 },
+      ),
+    )
+    const { default: handler } = await import('./live-token.js')
+    const response = new TestResponse()
+
+    await handler(
+      { method: 'GET', query: { source: 'en', target: 'nb' } },
+      response,
+    )
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toMatchObject({
+      sourceLanguage: 'en',
+      targetLanguage: 'nb',
+    })
+    const request = fetchMock.mock.calls[0]?.[1]
+    const body = JSON.parse(String(request?.body))
+    expect(
+      body.bidiGenerateContentSetup.generationConfig.translationConfig
+        .targetLanguageCode,
+    ).toBe('nb')
+  })
 })

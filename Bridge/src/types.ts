@@ -86,6 +86,7 @@ export const supportedLanguages = [
   { code: 'mn', label: 'Mongolian' },
   { code: 'ne', label: 'Nepali' },
   { code: 'no', label: 'Norwegian' },
+  { code: 'nb', label: 'Norwegian Bokmål' },
   { code: 'fa', label: 'Persian' },
   { code: 'pl', label: 'Polish' },
   { code: 'pt-BR', label: 'Portuguese (Brazil)' },
@@ -231,7 +232,21 @@ export function languageMetaFromCode(code: string): LanguageMeta {
 export function languageCodesMatch(left: string, right: string): boolean {
   const a = canonicalLanguageCode(left)
   const b = canonicalLanguageCode(right)
-  return a === b || a.split('-')[0] === b.split('-')[0]
+  if (a === b) return true
+
+  // A generic code such as `pt` may stand for a regional variant, but two
+  // explicit variants such as `pt-BR` and `pt-PT` must remain distinct.
+  const leftIsGeneric = isGenericLanguageCode(left)
+  const rightIsGeneric = isGenericLanguageCode(right)
+  return (
+    (leftIsGeneric || rightIsGeneric) &&
+    a.split('-')[0] === b.split('-')[0]
+  )
+}
+
+function isGenericLanguageCode(code: string): boolean {
+  const normalized = code.trim().replaceAll('_', '-')
+  return normalized.length > 0 && !normalized.includes('-')
 }
 
 export function isSupportedLanguageCode(

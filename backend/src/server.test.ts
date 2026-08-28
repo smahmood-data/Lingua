@@ -55,6 +55,7 @@ test('live token accepts expanded targets and legacy direction spellings', async
       'target=en',
       'target=fr',
       'target=zh-Hans',
+      'target=nb',
       'source=en&target=fr',
       'direction=ur-en',
       'direction=en-to-es',
@@ -105,6 +106,7 @@ test('Gemini Live tokens work with the configured API key', { skip: !process.env
   for (const [query, sourceLanguage, targetLanguage] of [
     ['target=en', 'auto', 'en'],
     ['source=en&target=es', 'en', 'es'],
+    ['source=en&target=nb', 'en', 'nb'],
   ] as const) {
     const tokenResponse = await fetch(`${baseUrl}/api/live-token?${query}`);
     const tokenText = await tokenResponse.text();

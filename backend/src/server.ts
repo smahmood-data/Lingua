@@ -84,6 +84,7 @@ const SUPPORTED_TARGET_LANGUAGES = [
   'mn',
   'ne',
   'no',
+  'nb',
   'fa',
   'pl',
   'pt-BR',
