@@ -1,5 +1,3 @@
-import type { PartnerLanguage, TranslationDirection } from './types'
-
 /**
  * Live translation model.
  *
@@ -66,31 +64,5 @@ export const CAPTURE_CHUNK_MS = 100
 /** MIME type for realtime audio input, including the required sample rate. */
 export const INPUT_AUDIO_MIME_TYPE = `audio/pcm;rate=${INPUT_SAMPLE_RATE}`
 
-interface DirectionLanguages {
-  /** BCP-47 code of the language being spoken into the microphone. */
-  source: string
-  /** BCP-47 code Gemini should translate into. */
-  target: string
-}
-
-const DIRECTION_LANGUAGES: Record<TranslationDirection, DirectionLanguages> = {
-  'ur-to-en': { source: 'ur', target: 'en' },
-  'en-to-ur': { source: 'en', target: 'ur' },
-  'es-to-en': { source: 'es', target: 'en' },
-  'en-to-es': { source: 'en', target: 'es' },
-  'bn-to-en': { source: 'bn', target: 'en' },
-  'en-to-bn': { source: 'en', target: 'bn' },
-}
-
-export function languagesForDirection(
-  direction: TranslationDirection,
-): DirectionLanguages {
-  return DIRECTION_LANGUAGES[direction]
-}
-
-/** Both live directions needed for a two-way English ↔ partner conversation. */
-export function conversationDirections(
-  partner: PartnerLanguage,
-): TranslationDirection[] {
-  return [`${partner}-to-en`, `en-to-${partner}`]
-}
+/** Auto-detected speech is translated into English until the user chooses otherwise. */
+export const DEFAULT_TARGET_LANGUAGE = 'en'

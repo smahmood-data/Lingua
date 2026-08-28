@@ -4,10 +4,10 @@ import {
   CONNECT_TIMEOUT_MS,
   INPUT_AUDIO_MIME_TYPE,
   LIVE_API_VERSION,
-  languagesForDirection,
 } from './config'
 import { sessionError } from './errors'
-import type { TranscriptKind, TranslationDirection } from './types'
+import { languageCodesMatch } from '../../types'
+import type { SupportedLanguageCode, TranscriptKind } from './types'
 import { base64ToBytes } from './audio/pcm'
 
 export interface LiveTransportEvents {
@@ -31,7 +31,7 @@ export interface LiveTransportOptions {
   /** Short-lived ephemeral token from the server. Never the long-lived key. */
   token: string
   model: string
-  direction: TranslationDirection
+  targetLanguage: SupportedLanguageCode
   /** Cancels a connection attempt that has not completed setup yet. */
   signal: AbortSignal
   events: LiveTransportEvents
@@ -119,7 +119,7 @@ export async function connectLiveTransport(
 
   // Gemini Live Translate auto-detects the spoken language; only the target
   // language is configured.
-  const { target } = languagesForDirection(options.direction)
+  const target = options.targetLanguage
   const client = new GoogleGenAI({
     apiKey: options.token,
     httpOptions: { apiVersion: LIVE_API_VERSION },
@@ -129,6 +129,8 @@ export async function connectLiveTransport(
   let abandoned = false
   let closedByClient = false
   let pendingSocket: WebSocket | null = null
+  let audioDisposition: 'pending' | 'play' | 'drop' = 'pending'
+  let pendingAudio: Uint8Array[] = []
   let rejectConnect: (reason: unknown) => void = () => undefined
   const connectFailed = new Promise<never>((_, reject) => {
     rejectConnect = reject
@@ -144,6 +146,34 @@ export async function connectLiveTransport(
       }
       rejectConnect(sessionError('live-connection-failed'))
     }
+  }
+
+  const setAudioDisposition = (next: 'play' | 'drop') => {
+    audioDisposition = next
+    if (next === 'play') {
+      for (const chunk of pendingAudio) {
+        options.events.onAudio(chunk)
+      }
+    }
+    pendingAudio = []
+  }
+
+  const routeAudio = (chunk: Uint8Array) => {
+    if (audioDisposition === 'play') {
+      options.events.onAudio(chunk)
+    } else if (audioDisposition === 'pending') {
+      // Language detection normally arrives before translated audio. Keep a
+      // short safety buffer so the first syllable is not clipped if events race.
+      pendingAudio.push(chunk)
+      if (pendingAudio.length > 32) pendingAudio.shift()
+    }
+  }
+
+  const routeInputLanguage = (languageCode?: string) => {
+    if (!languageCode) return
+    setAudioDisposition(
+      languageCodesMatch(languageCode, target) ? 'drop' : 'play',
+    )
   }
 
   const connectPromise = connectWithSocketCapture(
@@ -174,29 +204,40 @@ export async function connectLiveTransport(
               }
 
               if (content.interrupted) {
+                audioDisposition = 'pending'
+                pendingAudio = []
                 options.events.onInterrupted()
               }
 
-              for (const chunk of readAudioParts(message)) {
-                options.events.onAudio(chunk)
-              }
-
               if (content.interimInputTranscription) {
+                routeInputLanguage(
+                  content.interimInputTranscription.languageCode,
+                )
                 options.events.onInterimTranscript(
                   content.interimInputTranscription,
                 )
               }
               if (content.inputTranscription) {
+                routeInputLanguage(content.inputTranscription.languageCode)
                 options.events.onTranscript('source', content.inputTranscription)
               }
               if (content.outputTranscription) {
+                if (content.outputTranscription.text?.trim()) {
+                  setAudioDisposition('play')
+                }
                 options.events.onTranscript(
                   'translation',
                   content.outputTranscription,
                 )
               }
 
+              for (const chunk of readAudioParts(message)) {
+                routeAudio(chunk)
+              }
+
               if (content.turnComplete) {
+                audioDisposition = 'pending'
+                pendingAudio = []
                 options.events.onTurnComplete()
               }
             } catch {

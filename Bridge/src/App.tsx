@@ -9,12 +9,10 @@ import { useTranslationSession } from './hooks/useTranslationSession'
 import type { SessionError, SessionState, TranscriptTurn } from './lib/translation'
 import {
   controlIds,
-  languageFromCode,
-  partnerLanguageMeta,
+  languageMetaFromCode,
   type AppStatus,
   type ControlId,
-  type Language,
-  type PartnerLanguage,
+  type SupportedLanguageCode,
   type TranscriptLine,
 } from './types'
 import './App.css'
@@ -31,13 +29,9 @@ function toAppStatus(
   return 'ready'
 }
 
-function otherLanguage(language: Language, partner: PartnerLanguage): Language {
-  return language === 'English' ? partnerLanguageMeta[partner].label : 'English'
-}
-
 function toTranscriptLines(
   turns: TranscriptTurn[],
-  partner: PartnerLanguage,
+  targetLanguage: SupportedLanguageCode,
 ): TranscriptLine[] {
   const lines: TranscriptLine[] = []
   let pendingSource: TranscriptTurn | null = null
@@ -50,18 +44,20 @@ function toTranscriptLines(
     const spoken = source ?? translation
     if (!spoken) return
 
-    const originalLanguage = languageFromCode(
+    const originalLanguage = languageMetaFromCode(
       source?.languageCode ?? spoken.languageCode,
     )
     const translatedLanguage = translation
-      ? languageFromCode(translation.languageCode)
-      : otherLanguage(originalLanguage, partner)
+      ? languageMetaFromCode(translation.languageCode)
+      : languageMetaFromCode(targetLanguage)
 
     lines.push({
       id,
-      speaker: originalLanguage === 'English' ? 'You' : 'Speaker',
-      originalLanguage,
-      translatedLanguage,
+      speaker: `${originalLanguage.label} speaker`,
+      originalLanguage: originalLanguage.label,
+      originalLanguageCode: originalLanguage.code,
+      translatedLanguage: translatedLanguage.label,
+      translatedLanguageCode: translatedLanguage.code,
       original: source?.text ?? '',
       translated: translation?.text ?? '',
     })
@@ -89,20 +85,19 @@ function App() {
     transcript,
     interimTranscript,
     isActive,
-    startConversation,
+    targetLanguage,
+    start,
+    setTargetLanguage,
     stop,
   } = useTranslationSession()
 
-  const [partnerLanguage, setPartnerLanguage] = useState<PartnerLanguage>('ur')
   const [previewStatus, setPreviewStatus] = useState<AppStatus | null>(null)
   const liveStatus = toAppStatus(state, error)
   const usingPreview = state === 'stopped' && !error && previewStatus !== null
   const status = usingPreview ? previewStatus : liveStatus
 
   const controlRefs = useRef<Record<ControlId, HTMLElement | null>>({
-    ur: null,
-    es: null,
-    bn: null,
+    'target-language': null,
     start: null,
     stop: null,
     demo: null,
@@ -123,31 +118,25 @@ function App() {
   }, [])
 
   const isListening = isActive
-  const sourceLanguage = partnerLanguageMeta[partnerLanguage].label
-  const liveLines = toTranscriptLines(transcript, partnerLanguage)
-  const lines = usingPreview ? mockTranscripts[partnerLanguage] : liveLines
+  const liveLines = toTranscriptLines(transcript, targetLanguage)
+  const lines = usingPreview ? mockTranscripts : liveLines
 
-  const selectPartner = useCallback(
-    (nextLanguage: PartnerLanguage) => {
-      setPartnerLanguage(nextLanguage)
-      if (isActive) {
-        void stop()
-      }
+  const selectTargetLanguage = useCallback(
+    (nextLanguage: SupportedLanguageCode) => {
+      void setTargetLanguage(nextLanguage)
     },
-    [isActive, stop],
+    [setTargetLanguage],
   )
 
   const { handleDemoSelectKeyDown } = useControlKeyboard({
-    partnerLanguage,
     isListening,
-    onSelectPartner: selectPartner,
     controlRefs,
     demoDetailsRef,
   })
 
   function startInterpreter() {
     setPreviewStatus(null)
-    void startConversation(partnerLanguage)
+    void start(targetLanguage)
   }
 
   function stopInterpreter() {
@@ -157,27 +146,26 @@ function App() {
 
   return (
     <div className="app-shell">
-      <TopBar status={status} partnerLanguage={partnerLanguage} />
+      <TopBar status={status} targetLanguage={targetLanguage} />
 
       <main className="app-main">
         <StatusNotice status={status} detail={error?.message} />
         <Transcript
           status={status}
           lines={lines}
-          sourceLanguage={sourceLanguage}
-          partnerLanguage={partnerLanguage}
+          targetLanguage={targetLanguage}
           interimText={interimTranscript?.text}
           isPlaying={state === 'translating'}
         />
       </main>
 
       <ControlDock
-        partnerLanguage={partnerLanguage}
+        targetLanguage={targetLanguage}
         status={status}
         isListening={isListening}
         registerControl={registerControl}
         demoDetailsRef={demoDetailsRef}
-        onSelectPartner={selectPartner}
+        onSelectTargetLanguage={selectTargetLanguage}
         onStart={startInterpreter}
         onStop={stopInterpreter}
         onStatusChange={setPreviewStatus}

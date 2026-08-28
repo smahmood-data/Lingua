@@ -1,23 +1,16 @@
 import {
-  htmlLangFromLanguage,
-  partnerLanguageMeta,
+  languageCodesMatch,
+  languageMetaFromCode,
   type AppStatus,
-  type Language,
-  type PartnerLanguage,
+  type SupportedLanguageCode,
   type TranscriptLine,
 } from '../types'
 import './Transcript.css'
 
-function speakerVariant(speaker: string) {
-  return speaker === 'You' ? 'b' : 'a'
-}
-
-function langAttr(language: Language) {
-  return htmlLangFromLanguage(language)
-}
-
-function isRtl(language: Language) {
-  return language === 'Urdu'
+function speakerVariant(languageCode: string) {
+  let hash = 0
+  for (const character of languageCode) hash += character.codePointAt(0) ?? 0
+  return hash % 2 === 0 ? 'a' : 'b'
 }
 
 function Turn({ line, index }: { line: TranscriptLine; index: number }) {
@@ -29,7 +22,7 @@ function Turn({ line, index }: { line: TranscriptLine; index: number }) {
     >
       <header className="turn-meta">
         <span
-          className={`speaker-dot speaker-${speakerVariant(line.speaker)}`}
+          className={`speaker-dot speaker-${speakerVariant(line.originalLanguageCode)}`}
           aria-hidden="true"
         />
         <span className="turn-speaker">{line.speaker}</span>
@@ -38,10 +31,12 @@ function Turn({ line, index }: { line: TranscriptLine; index: number }) {
 
       <p
         className={`turn-original ${
-          line.originalLanguage === 'Urdu' ? 'urdu-text' : ''
+          languageCodesMatch(line.originalLanguageCode, 'ur') ? 'urdu-text' : ''
         }`}
-        lang={langAttr(line.originalLanguage)}
-        dir={isRtl(line.originalLanguage) ? 'rtl' : 'ltr'}
+        lang={line.originalLanguageCode}
+        dir={
+          languageMetaFromCode(line.originalLanguageCode).isRtl ? 'rtl' : 'ltr'
+        }
       >
         {line.original}
       </p>
@@ -53,10 +48,16 @@ function Turn({ line, index }: { line: TranscriptLine; index: number }) {
           </span>
           <p
             className={`turn-translated ${
-              line.translatedLanguage === 'Urdu' ? 'urdu-text' : ''
+              languageCodesMatch(line.translatedLanguageCode, 'ur')
+                ? 'urdu-text'
+                : ''
             }`}
-            lang={langAttr(line.translatedLanguage)}
-            dir={isRtl(line.translatedLanguage) ? 'rtl' : 'ltr'}
+            lang={line.translatedLanguageCode}
+            dir={
+              languageMetaFromCode(line.translatedLanguageCode).isRtl
+                ? 'rtl'
+                : 'ltr'
+            }
           >
             {line.translated}
           </p>
@@ -94,8 +95,12 @@ function MicGlyph() {
   )
 }
 
-function EmptyState({ partnerLanguage }: { partnerLanguage: PartnerLanguage }) {
-  const partner = partnerLanguageMeta[partnerLanguage]
+function EmptyState({
+  targetLanguage,
+}: {
+  targetLanguage: SupportedLanguageCode
+}) {
+  const target = languageMetaFromCode(targetLanguage)
   return (
     <div className="transcript-empty">
       <span className="empty-icon">
@@ -103,11 +108,10 @@ function EmptyState({ partnerLanguage }: { partnerLanguage: PartnerLanguage }) {
       </span>
       <p className="empty-title">Ready when you are</p>
       <p className="empty-body">
-        Start the conversation and Lingua translates live between English and{' '}
-        <span lang={partner.htmlLang} className={partnerLanguage === 'ur' ? 'urdu-text-inline' : ''}>
-          {partner.nativeName}
-        </span>
-        . Speak in either language — each turn is transcribed and read aloud.
+        Start the conversation and speak in any supported language. Lingua
+        detects it automatically, translates into{' '}
+        <span lang={target.htmlLang}>{target.label}</span>, and reads the
+        translation aloud.
       </p>
     </div>
   )
@@ -126,14 +130,15 @@ function ConnectingState() {
 }
 
 function ListeningFooter({
-  sourceLanguage,
+  targetLanguage,
   caption,
   isPlaying,
 }: {
-  sourceLanguage: string
+  targetLanguage: SupportedLanguageCode
   caption?: string
   isPlaying?: boolean
 }) {
+  const target = languageMetaFromCode(targetLanguage)
   return (
     <div className="listening-footer" role="status">
       <span className="listening-bars" aria-hidden="true">
@@ -147,7 +152,7 @@ function ListeningFooter({
           ? caption
           : isPlaying
             ? 'Playing the translation…'
-            : `Listening — speak in English or ${sourceLanguage}.`}
+            : `Listening — auto-detecting speech and translating into ${target.label}.`}
       </p>
     </div>
   )
@@ -156,8 +161,7 @@ function ListeningFooter({
 type Props = {
   status: AppStatus
   lines: TranscriptLine[]
-  sourceLanguage: string
-  partnerLanguage: PartnerLanguage
+  targetLanguage: SupportedLanguageCode
   interimText?: string
   isPlaying?: boolean
 }
@@ -165,8 +169,7 @@ type Props = {
 export function Transcript({
   status,
   lines,
-  sourceLanguage,
-  partnerLanguage,
+  targetLanguage,
   interimText,
   isPlaying,
 }: Props) {
@@ -187,7 +190,7 @@ export function Transcript({
       {!showTurns && status === 'loading' ? (
         <ConnectingState />
       ) : !showTurns ? (
-        <EmptyState partnerLanguage={partnerLanguage} />
+        <EmptyState targetLanguage={targetLanguage} />
       ) : (
         <ol className="turn-list">
           {lines.map((line, index) => (
@@ -195,15 +198,15 @@ export function Transcript({
               <Turn line={line} index={index} />
             </li>
           ))}
-          {status === 'listening' && (
+          {status === 'listening' ? (
             <li>
               <ListeningFooter
-                sourceLanguage={sourceLanguage}
+                targetLanguage={targetLanguage}
                 caption={interimText}
                 isPlaying={isPlaying}
               />
             </li>
-          )}
+          ) : null}
         </ol>
       )}
     </section>

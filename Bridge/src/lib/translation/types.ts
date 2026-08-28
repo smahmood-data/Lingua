@@ -2,14 +2,14 @@
  * Public contracts for the live translation pipeline.
  *
  * Issue #1 owns the shared cross-layer types for the project. The live pipeline
- * keeps its finer-grained session and caption types here; its direction type is
+ * keeps its finer-grained session and caption types here; its language type is
  * re-exported from the shared contract below. The UI (#4) and summary flow (#5)
  * should import from `src/lib/translation` rather than individual modules.
  */
 
-/** Shared API direction contract used by both live translation directions. */
-import type { PartnerLanguage, TranslationDirection } from '../../types'
-export type { PartnerLanguage, TranslationDirection }
+/** Shared target-language contract used by the frontend and token endpoint. */
+import type { SupportedLanguageCode } from '../../types'
+export type { SupportedLanguageCode }
 
 /**
  * Session lifecycle states.
@@ -81,7 +81,7 @@ export interface InterimTranscript {
 /** Snapshot handed to subscribers on every change. */
 export interface TranslationSessionSnapshot {
   state: SessionState
-  direction: TranslationDirection
+  targetLanguage: SupportedLanguageCode
   error: SessionError | null
   /** Finalised turns, oldest first. */
   transcript: TranscriptTurn[]

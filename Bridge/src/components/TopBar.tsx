@@ -1,8 +1,12 @@
-import { partnerLanguageMeta, type AppStatus, type PartnerLanguage } from '../types'
+import {
+  languageMetaFromCode,
+  type AppStatus,
+  type SupportedLanguageCode,
+} from '../types'
 import { statusMeta } from '../data/mockTranscripts'
 import './TopBar.css'
 
-function SwapGlyph() {
+function RouteGlyph() {
   return (
     <svg
       className="pair-swap"
@@ -13,7 +17,7 @@ function SwapGlyph() {
       aria-hidden="true"
     >
       <path
-        d="M4.5 3.5h8m0 0-2.25-2.25M12.5 3.5 10.25 5.75M11.5 12.5h-8m0 0 2.25 2.25M3.5 12.5l2.25-2.25"
+        d="M2.5 8h10m0 0-3-3m3 3-3 3"
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"
@@ -40,12 +44,12 @@ function StatusIndicator({ status }: { status: AppStatus }) {
 
 export function TopBar({
   status,
-  partnerLanguage,
+  targetLanguage,
 }: {
   status: AppStatus
-  partnerLanguage: PartnerLanguage
+  targetLanguage: SupportedLanguageCode
 }) {
-  const partner = partnerLanguageMeta[partnerLanguage]
+  const target = languageMetaFromCode(targetLanguage)
 
   return (
     <header className="topbar">
@@ -59,14 +63,14 @@ export function TopBar({
 
       <p
         className="language-pair"
-        aria-label={`Translating between English and ${partner.label}`}
+        aria-label={`Automatically detecting speech and translating into ${target.label}`}
       >
         <span className="pair-full">
-          English <SwapGlyph />{' '}
-          <span lang={partner.htmlLang}>{partner.nativeName}</span>
+          Auto-detect <RouteGlyph />{' '}
+          <span lang={target.htmlLang}>{target.label}</span>
         </span>
         <span className="pair-short" aria-hidden="true">
-          EN <SwapGlyph /> {partner.short}
+          Auto <RouteGlyph /> {target.code.toUpperCase()}
         </span>
       </p>
 

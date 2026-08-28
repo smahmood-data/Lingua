@@ -106,7 +106,7 @@ describe('TranslationSession startup ownership', () => {
     })
 
     const stopping = controller.stop()
-    const restarting = controller.start('en-to-ur')
+    const restarting = controller.start('ur')
     await Promise.resolve()
     expect(dependencies.startMicrophoneCapture).toHaveBeenCalledTimes(1)
 
@@ -119,7 +119,7 @@ describe('TranslationSession startup ownership', () => {
     expect(maximumCaptures).toBe(1)
     expect(controller.getSnapshot()).toMatchObject({
       state: 'listening',
-      direction: 'en-to-ur',
+      targetLanguage: 'ur',
     })
 
     await controller.stop()
@@ -302,19 +302,19 @@ describe('TranslationSession startup ownership', () => {
     expect(dependencies.createPlaybackScheduler).toHaveBeenCalledOnce()
   })
 
-  it('finishes a direction switch before the new direction can connect', async () => {
+  it('finishes a target-language switch before the new target can connect', async () => {
     let activeConnections = 0
     let maximumConnections = 0
-    const connectedDirections: string[] = []
+    const connectedTargets: string[] = []
 
     dependencies.startMicrophoneCapture.mockImplementation(async () => capture())
     dependencies.connectLiveTransport.mockImplementation(
       (options: LiveTransportOptions) => {
-        connectedDirections.push(options.direction)
+        connectedTargets.push(options.targetLanguage)
         activeConnections += 1
         maximumConnections = Math.max(maximumConnections, activeConnections)
 
-        if (connectedDirections.length === 1) {
+        if (connectedTargets.length === 1) {
           return new Promise<LiveTransport>((_resolve, reject) => {
             options.signal.addEventListener(
               'abort',
@@ -341,46 +341,48 @@ describe('TranslationSession startup ownership', () => {
       expect(dependencies.connectLiveTransport).toHaveBeenCalledOnce()
     })
 
-    await controller.setDirection('en-to-ur')
+    await controller.setTargetLanguage('ur')
     await firstStart
     expect(controller.getSnapshot()).toMatchObject({
       state: 'stopped',
-      direction: 'en-to-ur',
+      targetLanguage: 'ur',
     })
     expect(activeConnections).toBe(0)
 
     await controller.start()
-    expect(connectedDirections).toEqual(['ur-to-en', 'en-to-ur'])
+    expect(connectedTargets).toEqual(['en', 'ur'])
     expect(maximumConnections).toBe(1)
 
     await controller.stop()
     expect(activeConnections).toBe(0)
   })
 
-  it('opens both live directions for a two-way conversation', async () => {
-    const connectedDirections: string[] = []
-    const tokenDirections: string[] = []
-    const tokenProvider = vi.fn(async ({ direction }: { direction: string }) => {
-      tokenDirections.push(direction)
-      return {
-        token: 'auth_tokens/test-ephemeral-token',
-        model: 'test-live-model',
-      }
-    })
+  it('opens one auto-detect session for the selected target language', async () => {
+    const connectedTargets: string[] = []
+    const tokenTargets: string[] = []
+    const tokenProvider = vi.fn(
+      async ({ targetLanguage }: { targetLanguage: string }) => {
+        tokenTargets.push(targetLanguage)
+        return {
+          token: 'auth_tokens/test-ephemeral-token',
+          model: 'test-live-model',
+        }
+      },
+    )
 
     dependencies.startMicrophoneCapture.mockImplementation(async () => capture())
     dependencies.connectLiveTransport.mockImplementation(
       (options: LiveTransportOptions) => {
-        connectedDirections.push(options.direction)
+        connectedTargets.push(options.targetLanguage)
         return Promise.resolve(transport())
       },
     )
 
     const controller = new TranslationSession({ tokenProvider })
-    await controller.startConversation('es')
+    await controller.start('es')
 
-    expect(tokenDirections.sort()).toEqual(['en-to-es', 'es-to-en'])
-    expect(connectedDirections.sort()).toEqual(['en-to-es', 'es-to-en'])
+    expect(tokenTargets).toEqual(['es'])
+    expect(connectedTargets).toEqual(['es'])
     expect(controller.getSnapshot().state).toBe('listening')
 
     await controller.stop()

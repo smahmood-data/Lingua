@@ -4,23 +4,24 @@
 
 Lingua is a real-time conversation assistant for people who are not fluent in English. It is designed for high-stakes conversations with schools, doctors, landlords, banks, government offices, and other service providers.
 
-During a conversation, Lingua translates speech in both directions and displays live subtitles. At the end, it turns the transcript into a concise, preferred-language summary of appointments, deadlines, instructions, locations, required documents, decisions, and anything that may need clarification.
+During a conversation, Lingua automatically detects the spoken language, translates it into a selected language, reads the translation aloud, and displays live subtitles. At the end, it can turn the transcript into a concise, preferred-language summary of appointments, deadlines, instructions, locations, required documents, decisions, and anything that may need clarification.
 
 ## Hackathon MVP
 
 The first demo focuses on one complete path:
 
-1. Choose the user's language and the other speaker's language.
-2. Start a live, two-way translated conversation.
+1. Leave speech detection on Auto and choose the language to translate into (English by default).
+2. Start a live translated conversation.
 3. Hear translated speech and read live subtitles.
 4. End the conversation.
 5. Receive a structured action summary in the user's preferred language.
 
 ### Success criteria
 
-- Urdu speech is translated to English audio.
-- English speech is translated to Urdu audio.
-- Both sides of the conversation produce a usable transcript.
+- Spoken language is detected automatically.
+- Urdu, French, Chinese, Spanish, and the rest of Gemini Live Translate's supported languages can be translated to English audio.
+- The target can be changed from English to any supported language.
+- Each detected speaker language produces a clearly labelled transcript turn.
 - The final screen extracts at least an appointment, arrival time, location, and required documents from the demo script.
 - No Gemini API key is exposed in browser code or committed to Git.
 
@@ -28,7 +29,7 @@ Misunderstanding detection is a stretch goal. Authentication, a database, call i
 
 ## Current status
 
-The repository contains a React + TypeScript + Vite frontend in [`Bridge/`](./Bridge) and a TypeScript Express backend in [`backend/`](./backend). Issue #1 provides secure ephemeral Gemini Live tokens and a validated structured-summary endpoint. Issue #2 adds the Urdu → English live audio pipeline—microphone capture, PCM conversion, Gemini Live transport, streamed playback, and transcript events—behind the `useTranslationSession` hook. The developer harness is documented in the [frontend README](./Bridge/README.md); real end-to-end translation still needs a valid Gemini credential and browser microphone access.
+The repository contains a React + TypeScript + Vite frontend in [`Bridge/`](./Bridge) and a TypeScript Express backend in [`backend/`](./backend). The frontend now exposes Gemini Live Translate's complete supported target-language list, with automatic source-language detection and English as the default output. Microphone capture, PCM conversion, streamed playback, and transcript events live behind the `useTranslationSession` hook. The developer harness is documented in the [frontend README](./Bridge/README.md).
 
 ## Architecture & Security
 
@@ -40,6 +41,8 @@ Browser (React + Vite)
 ```
 
 The Gemini API key remains on the backend. The browser receives only a short-lived Live API token, and transcript summaries are validated before being returned to the frontend.
+
+For Vercel, [`Bridge/api/live-token.ts`](./Bridge/api/live-token.ts) provides the same secure token route inside the deployed frontend project. Set `GEMINI_API_KEY` as a server-side Vercel environment variable; never expose it as a `VITE_*` variable. The Vercel project root must be `Bridge`.
 
 ## Local setup
 
@@ -56,7 +59,7 @@ npm run dev
 
 Backend commands: `npm run check`, `npm run build`, `npm test`, and `npm start`.
 
-`npm test` verifies the local HTTP architecture without credentials. With `GEMINI_API_KEY`, it also attempts Live token and structured-summary requests; the summary check depends on available API quota.
+`npm test` verifies the local HTTP architecture. With `GEMINI_API_KEY`, it also creates a real Live token. Set `RUN_GEMINI_SUMMARY_TESTS=true` only when you intentionally want the quota-dependent structured-summary integration check.
 
 In a second terminal:
 

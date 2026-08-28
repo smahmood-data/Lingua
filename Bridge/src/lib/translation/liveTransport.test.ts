@@ -52,7 +52,7 @@ describe('connectLiveTransport cancellation', () => {
     const connecting = connectLiveTransport({
       token: 'auth_tokens/test-ephemeral-token',
       model: 'test-live-model',
-      direction: 'en-to-ur',
+      targetLanguage: 'ur',
       signal: abortController.signal,
       events: {
         onAudio: vi.fn(),
@@ -93,7 +93,7 @@ describe('connectLiveTransport cancellation', () => {
       connectLiveTransport({
         token: 'auth_tokens/test-ephemeral-token',
         model: 'test-live-model',
-        direction: 'ur-to-en',
+        targetLanguage: 'en',
         signal: abortController.signal,
         events: {
           onAudio: vi.fn(),
@@ -109,5 +109,70 @@ describe('connectLiveTransport cancellation', () => {
 
     expect(sdk.connect).not.toHaveBeenCalled()
     expect(FakeWebSocket.instances).toHaveLength(0)
+  })
+
+  it('plays translated audio and drops target-language echo audio', async () => {
+    let callbacks!: {
+      onmessage: (message: unknown) => void
+      onerror: () => void
+      onclose: () => void
+    }
+    const sendRealtimeInput = vi.fn()
+    const close = vi.fn()
+    sdk.connect.mockImplementation(async (options) => {
+      callbacks = options.callbacks
+      new WebSocket('wss://example.test/live')
+      return { sendRealtimeInput, close }
+    })
+
+    const onAudio = vi.fn()
+    const onTranscript = vi.fn()
+    const transport = await connectLiveTransport({
+      token: 'auth_tokens/test-ephemeral-token',
+      model: 'test-live-model',
+      targetLanguage: 'es',
+      signal: new AbortController().signal,
+      events: {
+        onAudio,
+        onTranscript,
+        onInterimTranscript: vi.fn(),
+        onInterrupted: vi.fn(),
+        onTurnComplete: vi.fn(),
+        onClosed: vi.fn(),
+        onError: vi.fn(),
+      },
+    })
+
+    callbacks.onmessage({
+      serverContent: {
+        inputTranscription: { text: 'Hola', languageCode: 'es' },
+        outputTranscription: { text: '', languageCode: 'es' },
+        modelTurn: {
+          parts: [{ inlineData: { data: 'AQI=', mimeType: 'audio/pcm' } }],
+        },
+      },
+    })
+    expect(onAudio).not.toHaveBeenCalled()
+
+    callbacks.onmessage({
+      serverContent: {
+        inputTranscription: { text: 'Hello', languageCode: 'en-US' },
+        outputTranscription: { text: 'Hola', languageCode: 'es' },
+        modelTurn: {
+          parts: [{ inlineData: { data: 'AwQ=', mimeType: 'audio/pcm' } }],
+        },
+      },
+    })
+
+    expect(onAudio).toHaveBeenCalledOnce()
+    expect(onAudio.mock.calls[0]?.[0]).toEqual(new Uint8Array([3, 4]))
+    expect(onTranscript).toHaveBeenCalledWith(
+      'translation',
+      expect.objectContaining({ text: 'Hola' }),
+    )
+
+    transport.close()
+    expect(sendRealtimeInput).toHaveBeenCalledWith({ audioStreamEnd: true })
+    expect(close).toHaveBeenCalledOnce()
   })
 })

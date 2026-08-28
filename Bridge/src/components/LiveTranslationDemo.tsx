@@ -1,37 +1,19 @@
 import type { CSSProperties } from 'react'
 import { useTranslationSession } from '../hooks/useTranslationSession'
-import type { SessionState, TranslationDirection } from '../lib/translation'
+import type { SessionState } from '../lib/translation'
+import {
+  languageMetaFromCode,
+  supportedLanguages,
+  type SupportedLanguageCode,
+} from '../types'
 
-/**
- * Temporary harness for manually exercising both translation directions in a
- * browser. It is intentionally plain: the real interpreter screen is Issue #4,
- * and this component should be deleted once that lands.
- *
- * Reachable at `/?live=1` — see `src/main.tsx`.
- */
+/** Development-only harness reachable at `/?live=1`. */
 
-const DIRECTION_LABELS: Record<
-  'ur-to-en' | 'en-to-ur',
-  { label: string; source: string; target: string }
-> = {
-  'ur-to-en': { label: 'Urdu → English', source: 'Urdu', target: 'English' },
-  'en-to-ur': { label: 'English → Urdu', source: 'English', target: 'Urdu' },
-}
-
-function stateLabel(
-  state: SessionState,
-  direction: TranslationDirection,
-): string {
-  const languages = DIRECTION_LABELS[direction as keyof typeof DIRECTION_LABELS]
+function stateLabel(state: SessionState, targetLanguage: SupportedLanguageCode) {
+  const target = languageMetaFromCode(targetLanguage).label
   if (state === 'connecting') return 'Connecting…'
-  if (state === 'listening') {
-    return languages ? `Listening for ${languages.source}` : 'Listening'
-  }
-  if (state === 'translating') {
-    return languages
-      ? `Playing ${languages.target} translation`
-      : 'Playing translation'
-  }
+  if (state === 'listening') return 'Listening with automatic language detection'
+  if (state === 'translating') return `Playing ${target} translation`
   if (state === 'error') return 'Error'
   return 'Stopped'
 }
@@ -67,45 +49,44 @@ export function LiveTranslationDemo() {
     transcript,
     interimTranscript,
     isActive,
-    direction,
+    targetLanguage,
     start,
-    setDirection,
+    setTargetLanguage,
     stop,
     clearTranscript,
   } = useTranslationSession()
+  const target = languageMetaFromCode(targetLanguage)
 
   return (
     <main style={page}>
-      <h1>
-        {(DIRECTION_LABELS[direction as keyof typeof DIRECTION_LABELS]?.label ??
-          'Live')}{' '}
-        translation
-      </h1>
+      <h1>Auto-detect → {target.label} live translation</h1>
       <p>
-        Developer harness for issues #2 and #3. Choose who is speaking, then start
-        the session. Headphones are recommended so translated output is not picked
-        up again by the microphone.
+        Developer harness for live voice translation. Speak in any supported
+        language; Gemini detects it automatically and reads the translation in
+        the selected target language.
       </p>
 
       <div style={controls}>
         <label>
-          Direction:{' '}
+          Translate into:{' '}
           <select
-            value={direction}
+            value={targetLanguage}
             onChange={(event) =>
-              void setDirection(event.target.value as TranslationDirection)
+              void setTargetLanguage(
+                event.target.value as SupportedLanguageCode,
+              )
             }
           >
-            {Object.entries(DIRECTION_LABELS).map(([value, copy]) => (
-              <option key={value} value={value}>
-                {copy.label}
+            {supportedLanguages.map((language) => (
+              <option key={language.code} value={language.code}>
+                {language.label}
               </option>
             ))}
           </select>
         </label>
         <button
           type="button"
-          onClick={() => void start(direction)}
+          onClick={() => void start(targetLanguage)}
           disabled={isActive}
         >
           Start session
@@ -121,7 +102,7 @@ export function LiveTranslationDemo() {
           Clear transcript
         </button>
         <span aria-live="polite">
-          <strong>Status:</strong> {stateLabel(state, direction)}
+          <strong>Status:</strong> {stateLabel(state, targetLanguage)}
         </span>
       </div>
 

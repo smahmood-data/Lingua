@@ -1,10 +1,9 @@
 import {
   CAPTURE_CHUNK_MS,
   DEFAULT_LIVE_MODEL,
+  DEFAULT_TARGET_LANGUAGE,
   INPUT_SAMPLE_RATE,
   OUTPUT_SAMPLE_RATE,
-  languagesForDirection,
-  conversationDirections,
 } from './config'
 import { sessionError, toSessionError } from './errors'
 import { connectLiveTransport, type LiveTransport, type LiveTransportEvents } from './liveTransport'
@@ -39,14 +38,13 @@ import type {
   SessionState,
   TranscriptKind,
   TranscriptTurn,
-  PartnerLanguage,
-  TranslationDirection,
+  SupportedLanguageCode,
   TranslationSessionSnapshot,
 } from './types'
 
 export interface TranslationSessionOptions {
-  /** Defaults to Urdu → English. */
-  direction?: TranslationDirection
+  /** Defaults to auto-detected speech → English. */
+  targetLanguage?: SupportedLanguageCode
   /** Overrides the ephemeral-token source. Defaults to the Lingua server. */
   tokenProvider?: LiveTokenProvider
   /** Overrides the model. Otherwise the server's model, then the documented default. */
@@ -70,7 +68,7 @@ export class TranslationSession {
   private error: SessionError | null = null
   private transcript: TranscriptTurn[] = []
   private interimTranscript: InterimTranscript | null = null
-  private direction: TranslationDirection
+  private targetLanguage: SupportedLanguageCode
   private readonly tokenProvider: LiveTokenProvider
   private readonly modelOverride?: string
 
@@ -90,12 +88,12 @@ export class TranslationSession {
   private snapshot: TranslationSessionSnapshot
 
   constructor(options: TranslationSessionOptions = {}) {
-    this.direction = options.direction ?? 'ur-to-en'
+    this.targetLanguage = options.targetLanguage ?? DEFAULT_TARGET_LANGUAGE
     this.tokenProvider = options.tokenProvider ?? createLiveTokenProvider()
     this.modelOverride = options.model
     this.snapshot = {
       state: this.state,
-      direction: this.direction,
+      targetLanguage: this.targetLanguage,
       error: this.error,
       transcript: this.transcript,
       interimTranscript: this.interimTranscript,
@@ -121,25 +119,11 @@ export class TranslationSession {
    * Start a session. Ignored while one is already connecting or running, so
    * repeated clicks cannot open a second microphone or Live connection.
    */
-  async start(direction?: TranslationDirection): Promise<void> {
-    await this.launch(direction ?? this.direction, [
-      direction ?? this.direction,
-    ])
+  async start(targetLanguage?: SupportedLanguageCode): Promise<void> {
+    await this.launch(targetLanguage ?? this.targetLanguage)
   }
 
-  /**
-   * Start a two-way conversation: English and `partner` are both auto-detected.
-   * Two Live sessions share the microphone so each spoken language can be
-   * translated into the other without a manual direction switch.
-   */
-  async startConversation(partner: PartnerLanguage): Promise<void> {
-    await this.launch(`${partner}-to-en`, conversationDirections(partner))
-  }
-
-  private async launch(
-    primary: TranslationDirection,
-    directions: TranslationDirection[],
-  ): Promise<void> {
+  private async launch(targetLanguage: SupportedLanguageCode): Promise<void> {
     // Remember the lifecycle version before waiting. A later stop (including
     // React unmount cleanup) invalidates this queued request so it cannot wake
     // up after teardown and reopen resources without an owner.
@@ -157,7 +141,7 @@ export class TranslationSession {
       return
     }
 
-    this.direction = primary
+    this.targetLanguage = targetLanguage
     this.error = null
     this.interimTranscript = null
     this.applyEvent('START')
@@ -173,7 +157,7 @@ export class TranslationSession {
     const startupPromise = this.startAttempt(
       generation,
       abortController,
-      directions,
+      targetLanguage,
     )
     this.startupPromise = startupPromise
 
@@ -197,18 +181,18 @@ export class TranslationSession {
   }
 
   /**
-   * Select a translation direction, stopping the current session first.
+   * Select a target language, stopping the current session first.
    * Starting remains an explicit user action so changing the selector never
    * opens the microphone unexpectedly.
    */
-  async setDirection(direction: TranslationDirection): Promise<void> {
-    if (this.disposed || direction === this.direction) {
+  async setTargetLanguage(targetLanguage: SupportedLanguageCode): Promise<void> {
+    if (this.disposed || targetLanguage === this.targetLanguage) {
       return
     }
 
     // Store the latest request immediately. Concurrent selector changes then
     // converge on the user's last choice while all callers share teardown.
-    this.direction = direction
+    this.targetLanguage = targetLanguage
     if (
       isSessionActive(this.state) ||
       this.shutdownPromise ||
@@ -254,7 +238,7 @@ export class TranslationSession {
   private async startAttempt(
     generation: number,
     abortController: AbortController,
-    directions: TranslationDirection[],
+    targetLanguage: SupportedLanguageCode,
   ): Promise<void> {
     try {
       // Create/resume playback while start() is still running from the click.
@@ -298,48 +282,28 @@ export class TranslationSession {
       }
       this.capture = capture
 
-      const tokens = await Promise.all(
-        directions.map((direction) =>
-          this.tokenProvider({
-            signal: abortController.signal,
-            direction,
-          }),
-        ),
-      )
+      const token = await this.tokenProvider({
+        signal: abortController.signal,
+        targetLanguage,
+      })
       if (this.isSuperseded(generation)) {
         return
       }
 
-      const connections = await Promise.allSettled(
-        directions.map((direction, index) =>
-          connectLiveTransport({
-            token: tokens[index].token,
-            model:
-              this.modelOverride ?? tokens[index].model ?? DEFAULT_LIVE_MODEL,
-            direction,
-            signal: abortController.signal,
-            events: this.liveEvents(generation, direction),
-          }),
-        ),
-      )
-      const opened = connections.flatMap((result) =>
-        result.status === 'fulfilled' ? [result.value] : [],
-      )
-      const failure = connections.find((result) => result.status === 'rejected')
+      const transport = await connectLiveTransport({
+        token: token.token,
+        model: this.modelOverride ?? token.model ?? DEFAULT_LIVE_MODEL,
+        targetLanguage,
+        signal: abortController.signal,
+        events: this.liveEvents(generation, targetLanguage),
+      })
 
-      if (this.isSuperseded(generation) || failure) {
-        for (const transport of opened) {
-          transport.close()
-        }
-        if (this.isSuperseded(generation)) {
-          return
-        }
-        throw failure && failure.status === 'rejected'
-          ? failure.reason
-          : sessionError('live-connection-failed')
+      if (this.isSuperseded(generation)) {
+        transport.close()
+        return
       }
 
-      this.transports = opened
+      this.transports = [transport]
 
       this.applyEvent('CONNECTED')
       this.emit()
@@ -356,7 +320,7 @@ export class TranslationSession {
 
   private liveEvents(
     generation: number,
-    direction: TranslationDirection,
+    targetLanguage: SupportedLanguageCode,
   ): LiveTransportEvents {
     return {
       onAudio: (pcm16) => {
@@ -366,12 +330,12 @@ export class TranslationSession {
       },
       onTranscript: (kind, transcription) => {
         if (!this.isSuperseded(generation)) {
-          this.recordTranscription(kind, transcription, direction)
+          this.recordTranscription(kind, transcription, targetLanguage)
         }
       },
       onInterimTranscript: (transcription) => {
         if (!this.isSuperseded(generation)) {
-          this.recordInterim(transcription, direction)
+          this.recordInterim(transcription)
         }
       },
       onInterrupted: () => {
@@ -422,13 +386,12 @@ export class TranslationSession {
   private recordTranscription(
     kind: TranscriptKind,
     transcription: { text?: string; finished?: boolean; languageCode?: string },
-    direction: TranslationDirection = this.direction,
+    targetLanguage: SupportedLanguageCode = this.targetLanguage,
   ): void {
-    const languages = languagesForDirection(direction)
     const fragment = normalizeTranscription(
       kind,
       transcription,
-      kind === 'source' ? languages.source : languages.target,
+      kind === 'source' ? 'und' : targetLanguage,
     )
     if (!fragment) {
       return
@@ -450,7 +413,6 @@ export class TranslationSession {
 
   private recordInterim(
     transcription: { text?: string; languageCode?: string },
-    direction: TranslationDirection = this.direction,
   ): void {
     const text = transcription.text ?? ''
     if (text.trim().length === 0) {
@@ -458,8 +420,7 @@ export class TranslationSession {
     }
     this.interimTranscript = {
       text,
-      languageCode:
-        transcription.languageCode ?? languagesForDirection(direction).source,
+      languageCode: transcription.languageCode ?? 'und',
     }
     this.emit()
   }
@@ -549,7 +510,7 @@ export class TranslationSession {
   private emit(): void {
     this.snapshot = {
       state: this.state,
-      direction: this.direction,
+      targetLanguage: this.targetLanguage,
       error: this.error,
       transcript: this.transcript,
       interimTranscript: this.interimTranscript,

@@ -1,22 +1,21 @@
 import {
-  partnerLanguageMeta,
-  partnerLanguages,
+  supportedLanguages,
   type AppStatus,
   type ControlId,
-  type PartnerLanguage,
+  type SupportedLanguageCode,
 } from '../types'
 import { DemoStates } from './DemoStates'
 import './ControlDock.css'
 
 type Props = {
-  partnerLanguage: PartnerLanguage
+  targetLanguage: SupportedLanguageCode
   status: AppStatus
   isListening: boolean
   registerControl: (
     controlId: ControlId,
   ) => (element: HTMLElement | null) => void
   demoDetailsRef: React.RefObject<HTMLDetailsElement | null>
-  onSelectPartner: (language: PartnerLanguage) => void
+  onSelectTargetLanguage: (language: SupportedLanguageCode) => void
   onStart: () => void
   onStop: () => void
   onStatusChange: (status: AppStatus) => void
@@ -45,15 +44,14 @@ function MicIcon() {
   )
 }
 
-// The dock keeps the two decisions that matter — who they are speaking with,
-// and whether the conversation is running — reachable at all times.
+// The dock keeps the output language and microphone controls reachable.
 export function ControlDock({
-  partnerLanguage,
+  targetLanguage,
   status,
   isListening,
   registerControl,
   demoDetailsRef,
-  onSelectPartner,
+  onSelectTargetLanguage,
   onStart,
   onStop,
   onStatusChange,
@@ -63,25 +61,33 @@ export function ControlDock({
     <section className="dock" aria-label="Conversation controls">
       <div className="dock-row">
         <fieldset className="direction-field">
-          <legend>Their language</legend>
-          <div className="segmented">
-            {partnerLanguages.map((language) => {
-              const meta = partnerLanguageMeta[language]
-              const active = partnerLanguage === language
-              return (
-                <button
-                  key={language}
-                  type="button"
-                  ref={registerControl(language)}
-                  data-language={language}
-                  className={`segment ${active ? 'segment-active' : ''}`}
-                  aria-pressed={active}
-                  onClick={() => onSelectPartner(language)}
-                >
-                  {meta.label}
-                </button>
-              )
-            })}
+          <legend>Translation languages</legend>
+          <div className="language-route">
+            <span className="language-source">
+              <span className="language-source-label">From</span>
+              Auto-detect
+            </span>
+            <span className="language-arrow" aria-hidden="true">
+              →
+            </span>
+            <label className="language-target">
+              <span className="language-target-label">Translate into</span>
+              <select
+                ref={registerControl('target-language')}
+                value={targetLanguage}
+                onChange={(event) =>
+                  onSelectTargetLanguage(
+                    event.target.value as SupportedLanguageCode,
+                  )
+                }
+              >
+                {supportedLanguages.map((language) => (
+                  <option key={language.code} value={language.code}>
+                    {language.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </fieldset>
 
@@ -110,7 +116,6 @@ export function ControlDock({
 
       <div className="dock-subrow">
         <p className="keyboard-hint">
-          <kbd>←</kbd> <kbd>→</kbd> language <span aria-hidden="true">·</span>{' '}
           <kbd>↑</kbd> <kbd>↓</kbd> controls <span aria-hidden="true">·</span>{' '}
           <kbd>Enter</kbd> to select
         </p>

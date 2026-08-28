@@ -30,13 +30,88 @@ const LIVE_NEW_SESSION_TTL_SECONDS = toPositiveInteger(
   60,
 );
 
-type TranslationDirection =
-  | 'ur-to-en'
-  | 'en-to-ur'
-  | 'es-to-en'
-  | 'en-to-es'
-  | 'bn-to-en'
-  | 'en-to-bn';
+const SUPPORTED_TARGET_LANGUAGES = [
+  'af',
+  'ak',
+  'sq',
+  'am',
+  'ar',
+  'hy',
+  'az',
+  'eu',
+  'be',
+  'bn',
+  'bg',
+  'my',
+  'ca',
+  'zh-Hans',
+  'zh-Hant',
+  'hr',
+  'cs',
+  'da',
+  'nl',
+  'en',
+  'et',
+  'fil',
+  'fi',
+  'fr',
+  'gl',
+  'ka',
+  'de',
+  'el',
+  'gu',
+  'ha',
+  'he',
+  'hi',
+  'hu',
+  'is',
+  'id',
+  'it',
+  'ja',
+  'jv',
+  'kn',
+  'kk',
+  'km',
+  'rw',
+  'ko',
+  'lo',
+  'lv',
+  'lt',
+  'mk',
+  'ms',
+  'ml',
+  'mr',
+  'mn',
+  'ne',
+  'no',
+  'fa',
+  'pl',
+  'pt-BR',
+  'pt-PT',
+  'pa',
+  'ro',
+  'ru',
+  'sr',
+  'sd',
+  'si',
+  'sk',
+  'sl',
+  'es',
+  'su',
+  'sw',
+  'sv',
+  'ta',
+  'te',
+  'th',
+  'tr',
+  'uk',
+  'ur',
+  'uz',
+  'vi',
+  'zu',
+] as const;
+type SupportedLanguageCode = (typeof SUPPORTED_TARGET_LANGUAGES)[number];
+const SUPPORTED_TARGET_LANGUAGE_SET = new Set<string>(SUPPORTED_TARGET_LANGUAGES);
 type SummaryArrayKey = Exclude<keyof ConversationSummary, 'summary'>;
 
 const SUMMARY_ARRAY_KEYS: SummaryArrayKey[] = [
@@ -197,11 +272,11 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 app.get('/api/live-token', async (req: Request, res: Response) => {
-  const direction = normalizeDirection(req.query.direction);
-  if (!direction) {
+  const route = normalizeTranslationRoute(req.query.target, req.query.direction);
+  if (!route) {
     return res.status(400).json({
       error: 'Validation Error',
-      message: 'direction must be a supported English language pair.',
+      message: 'target must be a supported Gemini Live Translation language.',
     });
   }
 
@@ -216,7 +291,7 @@ app.get('/api/live-token', async (req: Request, res: Response) => {
 
   try {
     const token = await createGeminiLiveToken({
-      direction,
+      targetLanguage: route.targetLanguage,
       expireTime,
       newSessionExpireTime,
     });
@@ -232,7 +307,8 @@ app.get('/api/live-token', async (req: Request, res: Response) => {
       expiresAt: authToken.expireTime || expireTime,
       newSessionExpiresAt: authToken.newSessionExpireTime || newSessionExpireTime,
       model: GEMINI_LIVE_MODEL,
-      direction,
+      targetLanguage: route.targetLanguage,
+      direction: route.direction,
     });
   } catch (error) {
     sendGeminiError(res, error, 'Unable to create Gemini Live token.');
@@ -298,40 +374,69 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 async function createGeminiLiveToken({
-  direction,
+  targetLanguage,
   expireTime,
   newSessionExpireTime,
 }: {
-  direction: TranslationDirection;
+  targetLanguage: SupportedLanguageCode;
   expireTime: string;
   newSessionExpireTime: string;
 }): Promise<GeminiAuthTokenResponse> {
-  const response = await fetch(`${GEMINI_API_BASE_URL}/auth_tokens`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': getGeminiApiKey(),
-    },
-    body: JSON.stringify({
-      uses: 1,
-      expireTime,
-      newSessionExpireTime,
-      bidiGenerateContentSetup: {
-        model: `models/${GEMINI_LIVE_MODEL.replace(/^models\//, '')}`,
-        generationConfig: {
-          responseModalities: ['AUDIO'],
-          translationConfig: {
-            targetLanguageCode: getTargetLanguageCode(direction),
-            echoTargetLanguage: false,
-          },
-        },
-        sessionResumption: {},
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
+  const requestToken = (constraints: 'legacy' | 'documented') =>
+    fetch(`${GEMINI_API_BASE_URL}/auth_tokens`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': getGeminiApiKey(),
       },
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
+      body: JSON.stringify({
+        uses: 1,
+        expireTime,
+        newSessionExpireTime,
+        ...(constraints === 'legacy'
+          ? {
+              bidiGenerateContentSetup: {
+                model: `models/${GEMINI_LIVE_MODEL.replace(/^models\//, '')}`,
+                generationConfig: {
+                  responseModalities: ['AUDIO'],
+                  translationConfig: {
+                    targetLanguageCode: targetLanguage,
+                    echoTargetLanguage: false,
+                  },
+                },
+                sessionResumption: {},
+                inputAudioTranscription: {},
+                outputAudioTranscription: {},
+              },
+            }
+          : {
+              liveConnectConstraints: {
+                model: `models/${GEMINI_LIVE_MODEL.replace(/^models\//, '')}`,
+                config: {
+                  responseModalities: ['AUDIO'],
+                  inputAudioTranscription: {},
+                  outputAudioTranscription: {},
+                  translationConfig: {
+                    targetLanguageCode: targetLanguage,
+                    echoTargetLanguage: false,
+                  },
+                },
+              },
+            }),
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+  // Google's July 2026 guide documents liveConnectConstraints, while some
+  // v1beta accounts still expose only bidiGenerateContentSetup. Prefer the
+  // proven field and retry the documented successor once the old field retires.
+  let response = await requestToken('legacy');
+  if (
+    response.status === 400 &&
+    (await response.clone().text()).includes('bidiGenerateContentSetup')
+  ) {
+    response = await requestToken('documented');
+  }
 
   return parseGeminiResponse(response);
 }
@@ -391,10 +496,6 @@ async function parseGeminiResponse<T>(response: globalThis.Response): Promise<T>
   }
 
   return data as T;
-}
-
-function getTargetLanguageCode(direction: TranslationDirection): string {
-  return direction.split('-to-')[1] ?? 'en';
 }
 
 function buildSummaryPrompt(transcript: TranscriptTurn[], preferredLanguage: string): string {
@@ -489,10 +590,19 @@ function validateSummary(summary: unknown): string | null {
   return null;
 }
 
-function normalizeDirection(direction: unknown): TranslationDirection | null {
-  const value = typeof direction === 'string' ? direction : 'ur-to-en';
+function normalizeTranslationRoute(
+  target: unknown,
+  direction: unknown,
+): { targetLanguage: SupportedLanguageCode; direction: string } | null {
+  if (typeof target === 'string') {
+    const targetLanguage = normalizeTargetLanguage(target);
+    return targetLanguage
+      ? { targetLanguage, direction: `auto-to-${targetLanguage}` }
+      : null;
+  }
 
-  const aliases: Record<string, TranslationDirection> = {
+  const value = typeof direction === 'string' ? direction : 'auto-to-en';
+  const aliases: Record<string, string> = {
     'ur-en': 'ur-to-en',
     'en-ur': 'en-to-ur',
     'es-en': 'es-to-en',
@@ -500,12 +610,23 @@ function normalizeDirection(direction: unknown): TranslationDirection | null {
     'bn-en': 'bn-to-en',
     'en-bn': 'en-to-bn',
   };
+  const normalizedDirection = aliases[value] ?? value;
+  const separator = normalizedDirection.lastIndexOf('-to-');
+  if (separator < 1) return null;
 
-  if (value in aliases) {
-    return aliases[value];
-  }
+  const targetLanguage = normalizeTargetLanguage(
+    normalizedDirection.slice(separator + 4),
+  );
+  return targetLanguage
+    ? { targetLanguage, direction: normalizedDirection }
+    : null;
+}
 
-  return isTranslationDirection(value) ? value : null;
+function normalizeTargetLanguage(value: string): SupportedLanguageCode | null {
+  const match = SUPPORTED_TARGET_LANGUAGES.find(
+    (language) => language.toLowerCase() === value.trim().toLowerCase(),
+  );
+  return match && SUPPORTED_TARGET_LANGUAGE_SET.has(match) ? match : null;
 }
 
 function normalizeText(value: unknown): string {
@@ -538,10 +659,6 @@ function getErrorStatus(error: unknown): number {
   }
 
   return 500;
-}
-
-function isTranslationDirection(value: string): value is TranslationDirection {
-  return /^(ur|es|bn)-to-en$/.test(value) || /^en-to-(ur|es|bn)$/.test(value);
 }
 
 function getGeminiApiKey(): string {

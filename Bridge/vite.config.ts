@@ -21,6 +21,6 @@ export default defineConfig({
   // repository root and tries to load the backend's compiled `dist` output.
   test: {
     root: import.meta.dirname,
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'api/**/*.test.ts'],
   },
 })

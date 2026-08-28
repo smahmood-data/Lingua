@@ -32,35 +32,32 @@ test('health endpoint reports a live backend', async () => {
   assert.equal(body.service, 'lingua-backend');
 });
 
-test('live token validates direction before calling Gemini', async () => {
-  const response = await fetch(`${baseUrl}/api/live-token?direction=fr-de`);
+test('live token validates the target language before calling Gemini', async () => {
+  const response = await fetch(`${baseUrl}/api/live-token?target=xx-invalid`);
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), {
     error: 'Validation Error',
-    message: 'direction must be a supported English language pair.',
+    message: 'target must be a supported Gemini Live Translation language.',
   });
 });
 
-test('live token accepts both canonical and legacy direction spellings', async () => {
+test('live token accepts expanded targets and legacy direction spellings', async () => {
   if (!process.env.GEMINI_API_KEY) {
-    for (const direction of [
-      'ur-to-en',
-      'en-to-ur',
-      'ur-en',
-      'en-ur',
-      'es-to-en',
-      'en-to-es',
-      'bn-to-en',
-      'en-to-bn',
+    for (const query of [
+      'target=en',
+      'target=fr',
+      'target=zh-Hans',
+      'direction=ur-en',
+      'direction=en-to-es',
     ]) {
-      const response = await fetch(`${baseUrl}/api/live-token?direction=${direction}`);
+      const response = await fetch(`${baseUrl}/api/live-token?${query}`);
       assert.equal(response.status, 500);
       assert.equal((await response.json()).error, 'Configuration Error');
     }
     return;
   }
 
-  const response = await fetch(`${baseUrl}/api/live-token?direction=en-to-ur`);
+  const response = await fetch(`${baseUrl}/api/live-token?target=fr`);
   assert.notEqual(response.status, 400);
 });
 
@@ -93,14 +90,18 @@ test('unknown routes return JSON', async () => {
   assert.equal((await response.json()).error, 'Not Found');
 });
 
-test('Gemini endpoints work with the configured API key', { skip: !process.env.GEMINI_API_KEY }, async () => {
-  const tokenResponse = await fetch(`${baseUrl}/api/live-token?direction=ur-en`);
+test('Gemini Live tokens work with the configured API key', { skip: !process.env.GEMINI_API_KEY }, async () => {
+  const tokenResponse = await fetch(`${baseUrl}/api/live-token?target=en`);
   const tokenText = await tokenResponse.text();
   assert.equal(tokenResponse.status, 200, tokenText);
   const tokenBody = JSON.parse(tokenText);
   assert.equal(typeof tokenBody.token, 'string');
-  assert.equal(tokenBody.direction, 'ur-to-en');
+  assert.equal(tokenBody.targetLanguage, 'en');
+});
 
+test('Gemini summary works when the external integration check is enabled', {
+  skip: !process.env.GEMINI_API_KEY || process.env.RUN_GEMINI_SUMMARY_TESTS !== 'true',
+}, async () => {
   const summaryResponse = await fetch(`${baseUrl}/api/summarize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
