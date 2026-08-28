@@ -1,7 +1,14 @@
 import {
+  interpreterInstruction,
+  isSourceLanguageCode,
   isSupportedLanguageCode,
+  type SourceLanguageCode,
   type SupportedLanguageCode,
 } from '../src/types.js'
+import {
+  END_OF_SPEECH_SENSITIVITY,
+  END_OF_SPEECH_SILENCE_MS,
+} from '../src/lib/translation/config.js'
 
 type ApiRequest = {
   method?: string
@@ -60,6 +67,14 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     })
   }
 
+  const requestedSource = queryValue(request.query.source) ?? 'auto'
+  if (!isSourceLanguageCode(requestedSource)) {
+    return response.status(400).json({
+      error: 'Validation Error',
+      message: 'source must be auto or a supported Gemini Live Translation language.',
+    })
+  }
+
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) {
     return response.status(500).json({
@@ -69,6 +84,20 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   const targetLanguage: SupportedLanguageCode = requestedTarget
+  const sourceLanguage: SourceLanguageCode = requestedSource
+  if (
+    sourceLanguage !== 'auto' &&
+    sourceLanguage.toLowerCase() === targetLanguage.toLowerCase()
+  ) {
+    return response.status(400).json({
+      error: 'Validation Error',
+      message: 'source and target must be different languages.',
+    })
+  }
+  const systemInstruction = interpreterInstruction(
+    sourceLanguage,
+    targetLanguage,
+  )
   const tokenTtlMinutes = positiveInteger(
     process.env.LIVE_TOKEN_TTL_MINUTES,
     30,
@@ -85,60 +114,46 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   ).toISOString()
 
   try {
-    const requestToken = (constraints: 'legacy' | 'documented') =>
-      fetch(`${API_BASE_URL}/auth_tokens`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
+    // `liveConnectConstraints` does not exist on this API version — it is
+    // rejected with "Unknown name" — so `bidiGenerateContentSetup` is the only
+    // way to bind a token to a model, an instruction, and a target language.
+    const geminiResponse = await fetch(`${API_BASE_URL}/auth_tokens`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        uses: 1,
+        expireTime,
+        newSessionExpireTime,
+        bidiGenerateContentSetup: {
+          model: `models/${LIVE_MODEL.replace(/^models\//, '')}`,
+          systemInstruction: {
+            parts: [{ text: systemInstruction }],
+          },
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            translationConfig: {
+              targetLanguageCode: targetLanguage,
+              // A route stays silent when the language being spoken is already
+              // its target, so only the other route of the pair is heard.
+              echoTargetLanguage: false,
+            },
+          },
+          sessionResumption: {},
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              endOfSpeechSensitivity: END_OF_SPEECH_SENSITIVITY,
+              silenceDurationMs: END_OF_SPEECH_SILENCE_MS,
+            },
+          },
         },
-        body: JSON.stringify({
-          uses: 1,
-          expireTime,
-          newSessionExpireTime,
-          ...(constraints === 'legacy'
-            ? {
-                bidiGenerateContentSetup: {
-                  model: `models/${LIVE_MODEL.replace(/^models\//, '')}`,
-                  generationConfig: {
-                    responseModalities: ['AUDIO'],
-                    translationConfig: {
-                      targetLanguageCode: targetLanguage,
-                      echoTargetLanguage: false,
-                    },
-                  },
-                  sessionResumption: {},
-                  inputAudioTranscription: {},
-                  outputAudioTranscription: {},
-                },
-              }
-            : {
-                liveConnectConstraints: {
-                  model: `models/${LIVE_MODEL.replace(/^models\//, '')}`,
-                  config: {
-                    responseModalities: ['AUDIO'],
-                    inputAudioTranscription: {},
-                    outputAudioTranscription: {},
-                    translationConfig: {
-                      targetLanguageCode: targetLanguage,
-                      echoTargetLanguage: false,
-                    },
-                  },
-                },
-              }),
-        }),
-        signal: AbortSignal.timeout(30_000),
-      })
-
-    let geminiResponse = await requestToken('legacy')
-    if (
-      geminiResponse.status === 400 &&
-      (await geminiResponse.clone().text()).includes(
-        'bidiGenerateContentSetup',
-      )
-    ) {
-      geminiResponse = await requestToken('documented')
-    }
+      }),
+      signal: AbortSignal.timeout(30_000),
+    })
 
     const tokenBody = (await geminiResponse.json()) as GeminiAuthTokenResponse
     if (!geminiResponse.ok) {
@@ -162,7 +177,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       newSessionExpiresAt:
         token.newSessionExpireTime ?? newSessionExpireTime,
       model: LIVE_MODEL,
+      sourceLanguage,
       targetLanguage,
+      systemInstruction,
     })
   } catch {
     return response.status(502).json({

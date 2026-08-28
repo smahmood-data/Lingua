@@ -1,6 +1,8 @@
 import {
+  AUTO_SOURCE_LANGUAGE,
   languageMetaFromCode,
   type AppStatus,
+  type SourceLanguageCode,
   type SupportedLanguageCode,
 } from '../types'
 import { statusMeta } from '../data/mockTranscripts'
@@ -17,7 +19,7 @@ function RouteGlyph() {
       aria-hidden="true"
     >
       <path
-        d="M2.5 8h10m0 0-3-3m3 3-3 3"
+        d="M2.5 5.5h10m0 0-2.5-2.5m2.5 2.5L10 8M13.5 10.5h-10m0 0L6 8m-2.5 2.5L6 13"
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"
@@ -44,12 +46,19 @@ function StatusIndicator({ status }: { status: AppStatus }) {
 
 export function TopBar({
   status,
+  sourceLanguage,
   targetLanguage,
 }: {
   status: AppStatus
+  sourceLanguage: SourceLanguageCode
   targetLanguage: SupportedLanguageCode
 }) {
+  const source =
+    sourceLanguage === AUTO_SOURCE_LANGUAGE
+      ? null
+      : languageMetaFromCode(sourceLanguage)
   const target = languageMetaFromCode(targetLanguage)
+  const sourceLabel = source?.label ?? 'Auto-detect'
 
   return (
     <header className="topbar">
@@ -63,14 +72,15 @@ export function TopBar({
 
       <p
         className="language-pair"
-        aria-label={`Automatically detecting speech and translating into ${target.label}`}
+        aria-label={`${sourceLabel} and ${target.label} two-way translation`}
       >
         <span className="pair-full">
-          Auto-detect <RouteGlyph />{' '}
+          {sourceLabel} <RouteGlyph />{' '}
           <span lang={target.htmlLang}>{target.label}</span>
         </span>
         <span className="pair-short" aria-hidden="true">
-          Auto <RouteGlyph /> {target.code.toUpperCase()}
+          {source?.code.toUpperCase() ?? 'Auto'} <RouteGlyph />{' '}
+          {target.code.toUpperCase()}
         </span>
       </p>
 

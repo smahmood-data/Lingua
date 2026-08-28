@@ -37,8 +37,16 @@ test('live token validates the target language before calling Gemini', async () 
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), {
     error: 'Validation Error',
-    message: 'target must be a supported Gemini Live Translation language.',
+    message:
+      'source must be auto or a supported language, target must be supported, and the languages must differ.',
   });
+});
+
+test('live token validates source languages and rejects identical pairs', async () => {
+  for (const query of ['source=xx-invalid&target=en', 'source=en&target=en']) {
+    const response = await fetch(`${baseUrl}/api/live-token?${query}`);
+    assert.equal(response.status, 400);
+  }
 });
 
 test('live token accepts expanded targets and legacy direction spellings', async () => {
@@ -47,6 +55,7 @@ test('live token accepts expanded targets and legacy direction spellings', async
       'target=en',
       'target=fr',
       'target=zh-Hans',
+      'source=en&target=fr',
       'direction=ur-en',
       'direction=en-to-es',
     ]) {
@@ -91,12 +100,23 @@ test('unknown routes return JSON', async () => {
 });
 
 test('Gemini Live tokens work with the configured API key', { skip: !process.env.GEMINI_API_KEY }, async () => {
-  const tokenResponse = await fetch(`${baseUrl}/api/live-token?target=en`);
-  const tokenText = await tokenResponse.text();
-  assert.equal(tokenResponse.status, 200, tokenText);
-  const tokenBody = JSON.parse(tokenText);
-  assert.equal(typeof tokenBody.token, 'string');
-  assert.equal(tokenBody.targetLanguage, 'en');
+  // Both directions of an interpreted conversation are minted the same way, so
+  // the reverse route of an explicit pair is checked against Gemini too.
+  for (const [query, sourceLanguage, targetLanguage] of [
+    ['target=en', 'auto', 'en'],
+    ['source=en&target=es', 'en', 'es'],
+  ] as const) {
+    const tokenResponse = await fetch(`${baseUrl}/api/live-token?${query}`);
+    const tokenText = await tokenResponse.text();
+    assert.equal(tokenResponse.status, 200, tokenText);
+    const tokenBody = JSON.parse(tokenText);
+    assert.equal(typeof tokenBody.token, 'string');
+    assert.equal(tokenBody.sourceLanguage, sourceLanguage);
+    assert.equal(tokenBody.targetLanguage, targetLanguage);
+    // The browser replays this verbatim into the Live setup, so a token without
+    // it cannot be used at all.
+    assert.ok(tokenBody.systemInstruction.length > 0, tokenText);
+  }
 });
 
 test('Gemini summary works when the external integration check is enabled', {

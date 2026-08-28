@@ -2,25 +2,41 @@ import { GoogleGenAI, Modality } from '@google/genai'
 import type { LiveServerMessage, Session, Transcription } from '@google/genai'
 import {
   CONNECT_TIMEOUT_MS,
+  END_OF_SPEECH_SENSITIVITY,
+  END_OF_SPEECH_SILENCE_MS,
   INPUT_AUDIO_MIME_TYPE,
   LIVE_API_VERSION,
+  TRANSCRIPT_IDLE_FINALIZE_MS,
+  TRANSCRIPT_SETTLE_MS,
 } from './config'
 import { sessionError } from './errors'
-import { languageCodesMatch } from '../../types'
-import type { SupportedLanguageCode, TranscriptKind } from './types'
+import { resolveTranscriptLanguage } from '../../types'
+import type { SupportedLanguageCode } from './types'
 import { base64ToBytes } from './audio/pcm'
 
+/**
+ * One Live Translate route.
+ *
+ * A route is a socket with a single `targetLanguageCode`: the API has no
+ * source-language field, so a route can only ever be described as "everything
+ * heard, rendered into this one language". Deciding which route a given
+ * utterance belongs to needs both routes' evidence side by side, so it is not
+ * decided here — this module only normalises the wire protocol into the events
+ * below and leaves every judgement to `TranslationSession`.
+ */
 export interface LiveTransportEvents {
   /** Translated audio, as little-endian PCM16 at `OUTPUT_SAMPLE_RATE`. */
   onAudio: (pcm16: Uint8Array) => void
-  /** A finalised transcription segment from the API. Never synthesised locally. */
-  onTranscript: (kind: TranscriptKind, transcription: Transcription) => void
+  /** Consolidated transcription of one thing the speaker said. */
+  onSourceTranscript: (transcription: Transcription) => void
+  /** Consolidated transcription of what this route generated for that speech. */
+  onTranslationTranscript: (transcription: Transcription) => void
   /** Speculative partial transcription of the speaker, updated while talking. */
   onInterimTranscript: (transcription: Transcription) => void
-  /** The model's current output was cut off; queued playback should be dropped. */
+  /** The model's current output was cut off; queued playback is stale. */
   onInterrupted: () => void
-  /** The model finished a turn. */
-  onTurnComplete: () => void
+  /** This route is finished with the utterance it was working on. */
+  onTurnEnd: () => void
   /** The socket closed. `expected` is false for a drop we did not initiate. */
   onClosed: (expected: boolean) => void
   /** A transport-level error, ahead of the close event. */
@@ -31,7 +47,10 @@ export interface LiveTransportOptions {
   /** Short-lived ephemeral token from the server. Never the long-lived key. */
   token: string
   model: string
+  /** The one language this route renders everything it hears into. */
   targetLanguage: SupportedLanguageCode
+  /** Server-returned instruction that matches this token's constraints. */
+  systemInstruction: string
   /** Cancels a connection attempt that has not completed setup yet. */
   signal: AbortSignal
   events: LiveTransportEvents
@@ -99,6 +118,65 @@ function readAudioParts(message: LiveServerMessage): Uint8Array[] {
   return chunks
 }
 
+function mergeTranscriptionText(current: string, incoming: string): string {
+  const next = incoming.trim()
+  if (!next) return current
+  if (!current) return next
+  if (next.startsWith(current)) return next
+  if (current.endsWith(next)) return current
+
+  const overlapLimit = Math.min(current.length, next.length)
+  for (let overlap = overlapLimit; overlap > 0; overlap -= 1) {
+    if (current.endsWith(next.slice(0, overlap))) {
+      return current + next.slice(overlap)
+    }
+  }
+
+  const needsSpace =
+    !/\s$/u.test(current) &&
+    !/^[\s,.;:!?،。！？]/u.test(next) &&
+    !/[\u3040-\u30ff\u3400-\u9fff]$/u.test(current) &&
+    !/^[\u3040-\u30ff\u3400-\u9fff]/u.test(next)
+  return `${current}${needsSpace ? ' ' : ''}${next}`
+}
+
+function mergeTranscription(
+  current: Transcription | null,
+  incoming: Transcription,
+): Transcription {
+  const text = mergeTranscriptionText(current?.text ?? '', incoming.text ?? '')
+  const languageCode =
+    resolveTranscriptLanguage(
+      incoming.languageCode ?? current?.languageCode,
+      text,
+    ) ?? incoming.languageCode ?? current?.languageCode
+
+  return { ...current, ...incoming, text, languageCode }
+}
+
+/**
+ * A single rearmable timeout. Arming replaces any pending run, so the callers
+ * below can extend a settle window without tracking handles themselves.
+ */
+function createRearmableTimer() {
+  let handle: ReturnType<typeof setTimeout> | null = null
+  return {
+    arm(delayMs: number, run: () => void) {
+      if (handle !== null) clearTimeout(handle)
+      handle = setTimeout(() => {
+        handle = null
+        run()
+      }, delayMs)
+    },
+    cancel() {
+      if (handle !== null) {
+        clearTimeout(handle)
+        handle = null
+      }
+    },
+  }
+}
+
 /**
  * Connect to Gemini Live Translate and normalise its messages into the small
  * event set the session controller needs.
@@ -117,9 +195,6 @@ export async function connectLiveTransport(
     throw sessionError('live-connection-failed')
   }
 
-  // Gemini Live Translate auto-detects the spoken language; only the target
-  // language is configured.
-  const target = options.targetLanguage
   const client = new GoogleGenAI({
     apiKey: options.token,
     httpOptions: { apiVersion: LIVE_API_VERSION },
@@ -129,8 +204,13 @@ export async function connectLiveTransport(
   let abandoned = false
   let closedByClient = false
   let pendingSocket: WebSocket | null = null
-  let audioDisposition: 'pending' | 'play' | 'drop' = 'pending'
-  let pendingAudio: Uint8Array[] = []
+  let sourceTranscript: Transcription | null = null
+  let translationTranscript: Transcription | null = null
+  /** Whether anything has been reported about the utterance in progress. */
+  let turnOpen = false
+  const sourceSettle = createRearmableTimer()
+  const translationSettle = createRearmableTimer()
+  const idleFinalize = createRearmableTimer()
   let rejectConnect: (reason: unknown) => void = () => undefined
   const connectFailed = new Promise<never>((_, reject) => {
     rejectConnect = reject
@@ -148,32 +228,49 @@ export async function connectLiveTransport(
     }
   }
 
-  const setAudioDisposition = (next: 'play' | 'drop') => {
-    audioDisposition = next
-    if (next === 'play') {
-      for (const chunk of pendingAudio) {
-        options.events.onAudio(chunk)
-      }
-    }
-    pendingAudio = []
-  }
-
-  const routeAudio = (chunk: Uint8Array) => {
-    if (audioDisposition === 'play') {
-      options.events.onAudio(chunk)
-    } else if (audioDisposition === 'pending') {
-      // Language detection normally arrives before translated audio. Keep a
-      // short safety buffer so the first syllable is not clipped if events race.
-      pendingAudio.push(chunk)
-      if (pendingAudio.length > 32) pendingAudio.shift()
+  const flushSource = () => {
+    sourceSettle.cancel()
+    const pending = sourceTranscript
+    sourceTranscript = null
+    if (pending?.text?.trim()) {
+      options.events.onSourceTranscript(pending)
     }
   }
 
-  const routeInputLanguage = (languageCode?: string) => {
-    if (!languageCode) return
-    setAudioDisposition(
-      languageCodesMatch(languageCode, target) ? 'drop' : 'play',
-    )
+  const flushTranslation = () => {
+    translationSettle.cancel()
+    const pending = translationTranscript
+    translationTranscript = null
+    if (pending?.text?.trim()) {
+      options.events.onTranslationTranscript(pending)
+    }
+  }
+
+  const flushTranscripts = () => {
+    flushSource()
+    flushTranslation()
+  }
+
+  /** Publish whatever is known and hand the utterance back to the session. */
+  const endTurn = () => {
+    idleFinalize.cancel()
+    flushTranscripts()
+    if (turnOpen) {
+      turnOpen = false
+      options.events.onTurnEnd()
+    }
+  }
+
+  const armIdleFinalize = () => {
+    if (!turnOpen) {
+      idleFinalize.cancel()
+      return
+    }
+    // `turnComplete` is not guaranteed: an interrupted turn skips
+    // `generationComplete`, and a session that goes away mid-utterance sends
+    // neither. Closing the turn locally only publishes text the API already
+    // sent and releases the route to arbitrate the next utterance.
+    idleFinalize.arm(TRANSCRIPT_IDLE_FINALIZE_MS, endTurn)
   }
 
   const connectPromise = connectWithSocketCapture(
@@ -182,13 +279,23 @@ export async function connectLiveTransport(
         model: options.model,
         config: {
           responseModalities: [Modality.AUDIO],
+          systemInstruction: {
+            parts: [{ text: options.systemInstruction }],
+          },
           inputAudioTranscription: {},
           outputAudioTranscription: {},
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              endOfSpeechSensitivity: END_OF_SPEECH_SENSITIVITY,
+              silenceDurationMs: END_OF_SPEECH_SILENCE_MS,
+            },
+          },
           translationConfig: {
-            targetLanguageCode: target,
-            // The demo runs on one laptop, so the translated target-language audio is
-            // audible to the microphone. Not echoing the target language keeps
-            // the model from translating its own output back again.
+            targetLanguageCode: options.targetLanguage,
+            // The API's own arbitration between the two routes of a pair: the
+            // route whose target is the language being spoken stays silent, so
+            // only the other one interprets. `translationConfig` has no source
+            // field, so this is the only per-route audio control there is.
             echoTargetLanguage: false,
           },
         },
@@ -204,42 +311,66 @@ export async function connectLiveTransport(
               }
 
               if (content.interrupted) {
-                audioDisposition = 'pending'
-                pendingAudio = []
+                // Only the model's *output* was cut off, so its queued audio is
+                // stale. What the speaker said is not: publish it rather than
+                // losing a turn they actually spoke.
                 options.events.onInterrupted()
+                endTurn()
               }
 
               if (content.interimInputTranscription) {
-                routeInputLanguage(
-                  content.interimInputTranscription.languageCode,
-                )
+                turnOpen = true
                 options.events.onInterimTranscript(
                   content.interimInputTranscription,
                 )
               }
               if (content.inputTranscription) {
-                routeInputLanguage(content.inputTranscription.languageCode)
-                options.events.onTranscript('source', content.inputTranscription)
+                turnOpen = true
+                sourceTranscript = mergeTranscription(
+                  sourceTranscript,
+                  content.inputTranscription,
+                )
+                if (content.inputTranscription.finished) {
+                  // The API says this is the whole utterance, so there is
+                  // nothing to wait for.
+                  flushSource()
+                } else {
+                  // Otherwise settle briefly, so a trailing fragment joins the
+                  // row it belongs to instead of starting a new one.
+                  sourceSettle.arm(TRANSCRIPT_SETTLE_MS, flushSource)
+                }
               }
               if (content.outputTranscription) {
-                if (content.outputTranscription.text?.trim()) {
-                  setAudioDisposition('play')
-                }
-                options.events.onTranscript(
-                  'translation',
+                turnOpen = true
+                translationTranscript = mergeTranscription(
+                  translationTranscript,
                   content.outputTranscription,
                 )
+                if (content.outputTranscription.finished) {
+                  flushTranslation()
+                } else {
+                  translationSettle.arm(TRANSCRIPT_SETTLE_MS, flushTranslation)
+                }
               }
 
               for (const chunk of readAudioParts(message)) {
-                routeAudio(chunk)
+                turnOpen = true
+                options.events.onAudio(chunk)
+              }
+
+              if (content.generationComplete) {
+                // The model has stopped generating. `turnComplete` then waits
+                // for its realtime playback estimate to drain, which is several
+                // seconds later, so the transcript is settled from here.
+                flushSource()
+                translationSettle.arm(TRANSCRIPT_SETTLE_MS, flushTranslation)
               }
 
               if (content.turnComplete) {
-                audioDisposition = 'pending'
-                pendingAudio = []
-                options.events.onTurnComplete()
+                endTurn()
               }
+
+              armIdleFinalize()
             } catch {
               // One malformed message must not tear down a working session.
             }
@@ -323,6 +454,11 @@ export async function connectLiveTransport(
         return
       }
       closedByClient = true
+      // Nothing may reach the event callbacks after the caller has released the
+      // transport, so the settle windows are dropped rather than allowed to run.
+      sourceSettle.cancel()
+      translationSettle.cancel()
+      idleFinalize.cancel()
       try {
         // Documented signal that the microphone was turned off while automatic
         // activity detection is on. We close immediately after and do not wait

@@ -4,6 +4,7 @@ import type {
   InterimTranscript,
   SessionError,
   SessionState,
+  SourceLanguageCode,
   SupportedLanguageCode,
   TranscriptTurn,
   TranslationSessionOptions,
@@ -14,6 +15,8 @@ export interface UseTranslationSessionResult {
   state: SessionState
   /** Selected output language for the next or current session. */
   targetLanguage: SupportedLanguageCode
+  /** Selected input language, or per-utterance automatic detection. */
+  sourceLanguage: SourceLanguageCode
   /** Last failure, cleared when a new session starts. `null` while healthy. */
   error: SessionError | null
   /** Finalised turns for this browser session only. Never persisted. */
@@ -23,9 +26,19 @@ export interface UseTranslationSessionResult {
   /** True while microphone and Live resources are held. */
   isActive: boolean
   /** Start a session. Repeated calls while active are ignored. */
-  start: (targetLanguage?: SupportedLanguageCode) => Promise<void>
+  start: (
+    sourceLanguage?: SourceLanguageCode,
+    targetLanguage?: SupportedLanguageCode,
+  ) => Promise<void>
+  /** Select the input language, stopping an active session before it changes. */
+  setSourceLanguage: (sourceLanguage: SourceLanguageCode) => Promise<void>
   /** Select an output language, stopping an active session before it changes. */
   setTargetLanguage: (targetLanguage: SupportedLanguageCode) => Promise<void>
+  /** Change both sides as one operation. */
+  setLanguages: (
+    sourceLanguage: SourceLanguageCode,
+    targetLanguage: SupportedLanguageCode,
+  ) => Promise<void>
   /** Stop and release everything. Safe to call more than once. */
   stop: () => Promise<void>
   /** Drop the transcript without touching the session. */
@@ -36,7 +49,7 @@ export interface UseTranslationSessionResult {
  * React binding for the live translation pipeline.
  *
  * Options are read once, when the session is created; later changes are ignored.
- * Pass `targetLanguage` to `start()` instead of re-rendering with new options.
+ * Pass the language pair to `start()` instead of re-rendering with new options.
  */
 export function useTranslationSession(
   options: TranslationSessionOptions = {},
@@ -59,7 +72,15 @@ export function useTranslationSession(
   }, [session])
 
   const start = useCallback(
-    (targetLanguage?: SupportedLanguageCode) => session.start(targetLanguage),
+    (
+      sourceLanguage?: SourceLanguageCode,
+      targetLanguage?: SupportedLanguageCode,
+    ) => session.start(sourceLanguage, targetLanguage),
+    [session],
+  )
+  const setSourceLanguage = useCallback(
+    (sourceLanguage: SourceLanguageCode) =>
+      session.setSourceLanguage(sourceLanguage),
     [session],
   )
   const setTargetLanguage = useCallback(
@@ -67,18 +88,28 @@ export function useTranslationSession(
       session.setTargetLanguage(targetLanguage),
     [session],
   )
+  const setLanguages = useCallback(
+    (
+      sourceLanguage: SourceLanguageCode,
+      targetLanguage: SupportedLanguageCode,
+    ) => session.setLanguages(sourceLanguage, targetLanguage),
+    [session],
+  )
   const stop = useCallback(() => session.stop(), [session])
   const clearTranscript = useCallback(() => session.clearTranscript(), [session])
 
   return {
     state: snapshot.state,
+    sourceLanguage: snapshot.sourceLanguage,
     targetLanguage: snapshot.targetLanguage,
     error: snapshot.error,
     transcript: snapshot.transcript,
     interimTranscript: snapshot.interimTranscript,
     isActive: isSessionActive(snapshot.state),
     start,
+    setSourceLanguage,
     setTargetLanguage,
+    setLanguages,
     stop,
     clearTranscript,
   }

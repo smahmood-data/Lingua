@@ -16,6 +16,7 @@ export type {
   SessionError,
   SessionErrorCode,
   SessionState,
+  SourceLanguageCode,
   TranscriptKind,
   TranscriptTurn,
   SupportedLanguageCode,
@@ -24,7 +25,7 @@ export type {
 
 export { canStart, isSessionActive } from './sessionMachine'
 export { SESSION_ERROR_CODES } from './errors'
-export { DEFAULT_TARGET_LANGUAGE } from './config'
+export { DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE } from './config'
 
 export {
   createLiveTokenProvider,

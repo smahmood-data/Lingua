@@ -8,10 +8,13 @@ import { useControlKeyboard } from './hooks/useControlKeyboard'
 import { useTranslationSession } from './hooks/useTranslationSession'
 import type { SessionError, SessionState, TranscriptTurn } from './lib/translation'
 import {
+  AUTO_SOURCE_LANGUAGE,
   controlIds,
+  languageCodesMatch,
   languageMetaFromCode,
   type AppStatus,
   type ControlId,
+  type SourceLanguageCode,
   type SupportedLanguageCode,
   type TranscriptLine,
 } from './types'
@@ -85,9 +88,10 @@ function App() {
     transcript,
     interimTranscript,
     isActive,
+    sourceLanguage,
     targetLanguage,
     start,
-    setTargetLanguage,
+    setLanguages,
     stop,
   } = useTranslationSession()
 
@@ -97,6 +101,7 @@ function App() {
   const status = usingPreview ? previewStatus : liveStatus
 
   const controlRefs = useRef<Record<ControlId, HTMLElement | null>>({
+    'source-language': null,
     'target-language': null,
     start: null,
     stop: null,
@@ -121,11 +126,36 @@ function App() {
   const liveLines = toTranscriptLines(transcript, targetLanguage)
   const lines = usingPreview ? mockTranscripts : liveLines
 
+  const selectSourceLanguage = useCallback(
+    (nextSource: SourceLanguageCode) => {
+      let nextTarget = targetLanguage
+      if (
+        nextSource !== AUTO_SOURCE_LANGUAGE &&
+        languageCodesMatch(nextSource, targetLanguage)
+      ) {
+        nextTarget =
+          sourceLanguage !== AUTO_SOURCE_LANGUAGE &&
+          !languageCodesMatch(sourceLanguage, nextSource)
+            ? sourceLanguage
+            : nextSource === 'en'
+              ? 'es'
+              : 'en'
+      }
+      void setLanguages(nextSource, nextTarget)
+    },
+    [setLanguages, sourceLanguage, targetLanguage],
+  )
+
   const selectTargetLanguage = useCallback(
     (nextLanguage: SupportedLanguageCode) => {
-      void setTargetLanguage(nextLanguage)
+      const nextSource =
+        sourceLanguage !== AUTO_SOURCE_LANGUAGE &&
+        languageCodesMatch(sourceLanguage, nextLanguage)
+          ? targetLanguage
+          : sourceLanguage
+      void setLanguages(nextSource, nextLanguage)
     },
-    [setTargetLanguage],
+    [setLanguages, sourceLanguage, targetLanguage],
   )
 
   const { handleDemoSelectKeyDown } = useControlKeyboard({
@@ -136,7 +166,7 @@ function App() {
 
   function startInterpreter() {
     setPreviewStatus(null)
-    void start(targetLanguage)
+    void start(sourceLanguage, targetLanguage)
   }
 
   function stopInterpreter() {
@@ -146,13 +176,18 @@ function App() {
 
   return (
     <div className="app-shell">
-      <TopBar status={status} targetLanguage={targetLanguage} />
+      <TopBar
+        status={status}
+        sourceLanguage={sourceLanguage}
+        targetLanguage={targetLanguage}
+      />
 
       <main className="app-main">
         <StatusNotice status={status} detail={error?.message} />
         <Transcript
           status={status}
           lines={lines}
+          sourceLanguage={sourceLanguage}
           targetLanguage={targetLanguage}
           interimText={interimTranscript?.text}
           isPlaying={state === 'translating'}
@@ -160,11 +195,13 @@ function App() {
       </main>
 
       <ControlDock
+        sourceLanguage={sourceLanguage}
         targetLanguage={targetLanguage}
         status={status}
         isListening={isListening}
         registerControl={registerControl}
         demoDetailsRef={demoDetailsRef}
+        onSelectSourceLanguage={selectSourceLanguage}
         onSelectTargetLanguage={selectTargetLanguage}
         onStart={startInterpreter}
         onStop={stopInterpreter}

@@ -24,6 +24,13 @@ export interface PlaybackScheduler {
   enqueue: (pcm16: Uint8Array) => void
   /** Drop everything queued or already scheduled, e.g. on an interruption. */
   flush: () => void
+  /**
+   * Audio-clock time left before the queue runs dry, in milliseconds.
+   *
+   * Read from the same clock the chunks were scheduled on, so a caller that
+   * has to bound how long playback may last does not have to guess.
+   */
+  remainingMs: () => number
   /** Idempotent teardown of the queue and the AudioContext. */
   dispose: () => Promise<void>
 }
@@ -59,6 +66,15 @@ export async function createPlaybackScheduler(
   let nextStartTime = 0
   let drainTimer: ReturnType<typeof setTimeout> | null = null
   let disposed = false
+  /**
+   * Whether a start has been announced that has not been paired with a drain.
+   *
+   * The caller silences the microphone between those two callbacks, so a start
+   * that never drains leaves it deaf. Tracking the announcement rather than the
+   * queue is what makes the pair impossible to break: the queue can already be
+   * empty when a flush arrives, and reading it would skip the drain.
+   */
+  let announcedStart = false
 
   const clearDrainTimer = () => {
     if (drainTimer !== null) {
@@ -67,12 +83,22 @@ export async function createPlaybackScheduler(
     }
   }
 
+  /** Announce the drain exactly once per announced start. */
+  const announceDrain = () => {
+    if (!announcedStart) return
+    announcedStart = false
+    nextStartTime = 0
+    if (!disposed) {
+      options.onPlaybackDrained?.()
+    }
+  }
+
   const scheduleDrainCheck = () => {
     clearDrainTimer()
     drainTimer = setTimeout(() => {
       drainTimer = null
-      if (!disposed && activeSources.size === 0) {
-        options.onPlaybackDrained?.()
+      if (activeSources.size === 0) {
+        announceDrain()
       }
     }, DRAIN_GRACE_MS)
   }
@@ -113,14 +139,17 @@ export async function createPlaybackScheduler(
     nextStartTime = startAt + buffer.duration
     activeSources.add(source)
 
-    if (wasIdle) {
+    if (wasIdle && !announcedStart) {
+      announcedStart = true
       options.onPlaybackStart?.()
     }
   }
 
+  const remainingMs = () =>
+    Math.max(0, (nextStartTime - audioContext.currentTime) * 1000)
+
   const flush = () => {
     clearDrainTimer()
-    const wasPlaying = activeSources.size > 0
 
     for (const source of [...activeSources]) {
       source.onended = null
@@ -133,10 +162,10 @@ export async function createPlaybackScheduler(
       releaseSource(source)
     }
 
-    nextStartTime = 0
-    if (wasPlaying && !disposed) {
-      options.onPlaybackDrained?.()
-    }
+    // Unconditional: a flush that lands in the grace period after the last
+    // chunk ended finds an empty queue, and skipping the drain there is what
+    // used to strand the caller in its playing state with a dead microphone.
+    announceDrain()
   }
 
   const dispose = async () => {
@@ -156,5 +185,5 @@ export async function createPlaybackScheduler(
     }
   }
 
-  return { enqueue, flush, dispose }
+  return { enqueue, flush, remainingMs, dispose }
 }

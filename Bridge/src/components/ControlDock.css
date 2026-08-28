@@ -14,7 +14,7 @@
   margin: 0 auto;
 }
 
-/* Language route — automatic input detection into one explicit output. */
+/* Language route — selectable input (including auto) and explicit output. */
 .direction-field {
   min-width: 0;
   margin: 0;
@@ -37,7 +37,7 @@
   gap: 8px;
 }
 
-.language-source,
+.language-source select,
 .language-target select {
   min-height: 42px;
   padding: 0 12px;
@@ -50,12 +50,9 @@
   font-weight: 600;
 }
 
-.language-source {
-  display: inline-flex;
-  flex-direction: column;
-  justify-content: center;
+.language-source select {
+  width: min(190px, 28vw);
   min-width: 116px;
-  line-height: 1.2;
 }
 
 .language-source-label,
@@ -69,14 +66,20 @@
   text-transform: uppercase;
 }
 
+.language-source select,
 .language-target select {
-  width: min(230px, 32vw);
   cursor: pointer;
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease;
 }
 
+.language-target select {
+  width: min(230px, 32vw);
+}
+
+.language-source select:hover,
+.language-source select:focus-visible,
 .language-target select:hover,
 .language-target select:focus-visible {
   border-color: var(--accent);
@@ -254,7 +257,7 @@
     grid-template-columns: 1fr auto 1.4fr;
   }
 
-  .language-source,
+  .language-source select,
   .language-target select {
     width: 100%;
   }

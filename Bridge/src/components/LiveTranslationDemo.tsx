@@ -2,8 +2,10 @@ import type { CSSProperties } from 'react'
 import { useTranslationSession } from '../hooks/useTranslationSession'
 import type { SessionState } from '../lib/translation'
 import {
+  AUTO_SOURCE_LANGUAGE,
   languageMetaFromCode,
   supportedLanguages,
+  type SourceLanguageCode,
   type SupportedLanguageCode,
 } from '../types'
 
@@ -49,30 +51,49 @@ export function LiveTranslationDemo() {
     transcript,
     interimTranscript,
     isActive,
+    sourceLanguage,
     targetLanguage,
     start,
-    setTargetLanguage,
+    setLanguages,
     stop,
     clearTranscript,
   } = useTranslationSession()
-  const target = languageMetaFromCode(targetLanguage)
-
   return (
     <main style={page}>
-      <h1>Auto-detect → {target.label} live translation</h1>
+      <h1>Two-way live translation</h1>
       <p>
-        Developer harness for live voice translation. Speak in any supported
-        language; Gemini detects it automatically and reads the translation in
-        the selected target language.
+        Developer harness for a two-way interpreted conversation. Auto mode
+        re-detects every utterance; selecting a source pins a known language
+        pair.
       </p>
 
       <div style={controls}>
+        <label>
+          From:{' '}
+          <select
+            value={sourceLanguage}
+            onChange={(event) =>
+              void setLanguages(
+                event.target.value as SourceLanguageCode,
+                targetLanguage,
+              )
+            }
+          >
+            <option value={AUTO_SOURCE_LANGUAGE}>Auto-detect</option>
+            {supportedLanguages.map((language) => (
+              <option key={language.code} value={language.code}>
+                {language.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           Translate into:{' '}
           <select
             value={targetLanguage}
             onChange={(event) =>
-              void setTargetLanguage(
+              void setLanguages(
+                sourceLanguage,
                 event.target.value as SupportedLanguageCode,
               )
             }
@@ -86,7 +107,7 @@ export function LiveTranslationDemo() {
         </label>
         <button
           type="button"
-          onClick={() => void start(targetLanguage)}
+          onClick={() => void start(sourceLanguage, targetLanguage)}
           disabled={isActive}
         >
           Start session

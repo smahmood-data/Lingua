@@ -111,7 +111,20 @@ const SUPPORTED_TARGET_LANGUAGES = [
   'zu',
 ] as const;
 type SupportedLanguageCode = (typeof SUPPORTED_TARGET_LANGUAGES)[number];
+type SourceLanguageCode = 'auto' | SupportedLanguageCode;
 const SUPPORTED_TARGET_LANGUAGE_SET = new Set<string>(SUPPORTED_TARGET_LANGUAGES);
+/**
+ * Automatic activity detection for the sessions this token constrains.
+ *
+ * The silence duration is long enough that a mid-sentence pause does not split
+ * an utterance. Sensitivity stays at the documented Gemini Live default:
+ * `END_SENSITIVITY_LOW` ends speech less often, so in a room with steady
+ * background noise the speaker's turn can stay open indefinitely and nothing is
+ * ever transcribed. Mirrors `END_OF_SPEECH_*` in the frontend's translation
+ * config; the token constrains the session setup, so the two must agree.
+ */
+const END_OF_SPEECH_SILENCE_MS = 700;
+const END_OF_SPEECH_SENSITIVITY = 'END_SENSITIVITY_HIGH';
 type SummaryArrayKey = Exclude<keyof ConversationSummary, 'summary'>;
 
 const SUMMARY_ARRAY_KEYS: SummaryArrayKey[] = [
@@ -272,11 +285,16 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 app.get('/api/live-token', async (req: Request, res: Response) => {
-  const route = normalizeTranslationRoute(req.query.target, req.query.direction);
+  const route = normalizeTranslationRoute(
+    req.query.target,
+    req.query.source,
+    req.query.direction,
+  );
   if (!route) {
     return res.status(400).json({
       error: 'Validation Error',
-      message: 'target must be a supported Gemini Live Translation language.',
+      message:
+        'source must be auto or a supported language, target must be supported, and the languages must differ.',
     });
   }
 
@@ -291,6 +309,7 @@ app.get('/api/live-token', async (req: Request, res: Response) => {
 
   try {
     const token = await createGeminiLiveToken({
+      sourceLanguage: route.sourceLanguage,
       targetLanguage: route.targetLanguage,
       expireTime,
       newSessionExpireTime,
@@ -307,8 +326,10 @@ app.get('/api/live-token', async (req: Request, res: Response) => {
       expiresAt: authToken.expireTime || expireTime,
       newSessionExpiresAt: authToken.newSessionExpireTime || newSessionExpireTime,
       model: GEMINI_LIVE_MODEL,
+      sourceLanguage: route.sourceLanguage,
       targetLanguage: route.targetLanguage,
       direction: route.direction,
+      systemInstruction: route.systemInstruction,
     });
   } catch (error) {
     sendGeminiError(res, error, 'Unable to create Gemini Live token.');
@@ -374,69 +395,60 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 async function createGeminiLiveToken({
+  sourceLanguage,
   targetLanguage,
   expireTime,
   newSessionExpireTime,
 }: {
+  sourceLanguage: SourceLanguageCode;
   targetLanguage: SupportedLanguageCode;
   expireTime: string;
   newSessionExpireTime: string;
 }): Promise<GeminiAuthTokenResponse> {
-  const requestToken = (constraints: 'legacy' | 'documented') =>
-    fetch(`${GEMINI_API_BASE_URL}/auth_tokens`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': getGeminiApiKey(),
+  const systemInstruction = buildInterpreterInstruction(
+    sourceLanguage,
+    targetLanguage,
+  );
+  // `liveConnectConstraints` does not exist on this API version — it is
+  // rejected with "Unknown name" — so `bidiGenerateContentSetup` is the only
+  // way to bind a token to a model, an instruction, and a target language.
+  const response = await fetch(`${GEMINI_API_BASE_URL}/auth_tokens`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': getGeminiApiKey(),
+    },
+    body: JSON.stringify({
+      uses: 1,
+      expireTime,
+      newSessionExpireTime,
+      bidiGenerateContentSetup: {
+        model: `models/${GEMINI_LIVE_MODEL.replace(/^models\//, '')}`,
+        systemInstruction: {
+          parts: [{ text: systemInstruction }],
+        },
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          translationConfig: {
+            targetLanguageCode: targetLanguage,
+            // A route stays silent when the language being spoken is already
+            // its target, so the other route of the pair is the only one heard.
+            echoTargetLanguage: false,
+          },
+        },
+        sessionResumption: {},
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            endOfSpeechSensitivity: END_OF_SPEECH_SENSITIVITY,
+            silenceDurationMs: END_OF_SPEECH_SILENCE_MS,
+          },
+        },
       },
-      body: JSON.stringify({
-        uses: 1,
-        expireTime,
-        newSessionExpireTime,
-        ...(constraints === 'legacy'
-          ? {
-              bidiGenerateContentSetup: {
-                model: `models/${GEMINI_LIVE_MODEL.replace(/^models\//, '')}`,
-                generationConfig: {
-                  responseModalities: ['AUDIO'],
-                  translationConfig: {
-                    targetLanguageCode: targetLanguage,
-                    echoTargetLanguage: false,
-                  },
-                },
-                sessionResumption: {},
-                inputAudioTranscription: {},
-                outputAudioTranscription: {},
-              },
-            }
-          : {
-              liveConnectConstraints: {
-                model: `models/${GEMINI_LIVE_MODEL.replace(/^models\//, '')}`,
-                config: {
-                  responseModalities: ['AUDIO'],
-                  inputAudioTranscription: {},
-                  outputAudioTranscription: {},
-                  translationConfig: {
-                    targetLanguageCode: targetLanguage,
-                    echoTargetLanguage: false,
-                  },
-                },
-              },
-            }),
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-
-  // Google's July 2026 guide documents liveConnectConstraints, while some
-  // v1beta accounts still expose only bidiGenerateContentSetup. Prefer the
-  // proven field and retry the documented successor once the old field retires.
-  let response = await requestToken('legacy');
-  if (
-    response.status === 400 &&
-    (await response.clone().text()).includes('bidiGenerateContentSetup')
-  ) {
-    response = await requestToken('documented');
-  }
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
 
   return parseGeminiResponse(response);
 }
@@ -592,13 +604,33 @@ function validateSummary(summary: unknown): string | null {
 
 function normalizeTranslationRoute(
   target: unknown,
+  source: unknown,
   direction: unknown,
-): { targetLanguage: SupportedLanguageCode; direction: string } | null {
+): {
+  sourceLanguage: SourceLanguageCode;
+  targetLanguage: SupportedLanguageCode;
+  direction: string;
+  systemInstruction: string;
+} | null {
   if (typeof target === 'string') {
     const targetLanguage = normalizeTargetLanguage(target);
-    return targetLanguage
-      ? { targetLanguage, direction: `auto-to-${targetLanguage}` }
-      : null;
+    const sourceLanguage = normalizeSourceLanguage(source ?? 'auto');
+    if (
+      !targetLanguage ||
+      !sourceLanguage ||
+      sourceLanguage === targetLanguage
+    ) {
+      return null;
+    }
+    return {
+      sourceLanguage,
+      targetLanguage,
+      direction: `${sourceLanguage}-to-${targetLanguage}`,
+      systemInstruction: buildInterpreterInstruction(
+        sourceLanguage,
+        targetLanguage,
+      ),
+    };
   }
 
   const value = typeof direction === 'string' ? direction : 'auto-to-en';
@@ -617,9 +649,31 @@ function normalizeTranslationRoute(
   const targetLanguage = normalizeTargetLanguage(
     normalizedDirection.slice(separator + 4),
   );
-  return targetLanguage
-    ? { targetLanguage, direction: normalizedDirection }
-    : null;
+  const sourceLanguage = normalizeSourceLanguage(
+    normalizedDirection.slice(0, separator),
+  );
+  if (
+    !targetLanguage ||
+    !sourceLanguage ||
+    sourceLanguage === targetLanguage
+  ) {
+    return null;
+  }
+  return {
+    sourceLanguage,
+    targetLanguage,
+    direction: normalizedDirection,
+    systemInstruction: buildInterpreterInstruction(
+      sourceLanguage,
+      targetLanguage,
+    ),
+  };
+}
+
+function normalizeSourceLanguage(value: unknown): SourceLanguageCode | null {
+  if (typeof value !== 'string') return null;
+  if (value.trim().toLowerCase() === 'auto') return 'auto';
+  return normalizeTargetLanguage(value);
 }
 
 function normalizeTargetLanguage(value: string): SupportedLanguageCode | null {
@@ -627,6 +681,31 @@ function normalizeTargetLanguage(value: string): SupportedLanguageCode | null {
     (language) => language.toLowerCase() === value.trim().toLowerCase(),
   );
   return match && SUPPORTED_TARGET_LANGUAGE_SET.has(match) ? match : null;
+}
+
+/**
+ * System instruction for one route of an interpreter session.
+ *
+ * A route renders everything it hears into `targetLanguage`; `translationConfig`
+ * has no source-language field, so `sourceLanguage` is only the other language
+ * of the conversation. It is named as context for recognition, deliberately
+ * without telling the model to *expect* it: a route told to expect one language
+ * identifies speech as that language even when it is not, which defeats
+ * `echoTargetLanguage: false` and makes the route read the speaker's own words
+ * back to them.
+ *
+ * Mirrors `interpreterInstruction` in the frontend's `src/types.ts`.
+ */
+function buildInterpreterInstruction(
+  sourceLanguage: SourceLanguageCode,
+  targetLanguage: SupportedLanguageCode,
+): string {
+  const pair =
+    sourceLanguage === 'auto'
+      ? 'You are the interpreter for a live conversation.'
+      : `You are the interpreter for a two-way conversation between language code ${sourceLanguage} and language code ${targetLanguage} speakers.`;
+
+  return `${pair} Translate every utterance into language code ${targetLanguage}. Identify the spoken language from the audio itself for each utterance, and never carry a previous language guess into a new turn. When the speaker is already speaking language code ${targetLanguage}, stay silent and produce no audio.`;
 }
 
 function normalizeText(value: unknown): string {

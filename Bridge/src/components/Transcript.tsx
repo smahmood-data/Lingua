@@ -1,7 +1,9 @@
 import {
+  AUTO_SOURCE_LANGUAGE,
   languageCodesMatch,
   languageMetaFromCode,
   type AppStatus,
+  type SourceLanguageCode,
   type SupportedLanguageCode,
   type TranscriptLine,
 } from '../types'
@@ -96,10 +98,16 @@ function MicGlyph() {
 }
 
 function EmptyState({
+  sourceLanguage,
   targetLanguage,
 }: {
+  sourceLanguage: SourceLanguageCode
   targetLanguage: SupportedLanguageCode
 }) {
+  const source =
+    sourceLanguage === AUTO_SOURCE_LANGUAGE
+      ? null
+      : languageMetaFromCode(sourceLanguage)
   const target = languageMetaFromCode(targetLanguage)
   return (
     <div className="transcript-empty">
@@ -108,10 +116,16 @@ function EmptyState({
       </span>
       <p className="empty-title">Ready when you are</p>
       <p className="empty-body">
-        Start the conversation and speak in any supported language. Lingua
-        detects it automatically, translates into{' '}
-        <span lang={target.htmlLang}>{target.label}</span>, and reads the
-        translation aloud.
+        Start the conversation and speak naturally. Lingua translates{' '}
+        {source ? (
+          <>
+            between <span lang={source.htmlLang}>{source.label}</span> and{' '}
+          </>
+        ) : (
+          'each detected language to and from '
+        )}
+        <span lang={target.htmlLang}>{target.label}</span>, reading both sides
+        aloud.
       </p>
     </div>
   )
@@ -130,15 +144,21 @@ function ConnectingState() {
 }
 
 function ListeningFooter({
+  sourceLanguage,
   targetLanguage,
   caption,
   isPlaying,
 }: {
+  sourceLanguage: SourceLanguageCode
   targetLanguage: SupportedLanguageCode
   caption?: string
   isPlaying?: boolean
 }) {
   const target = languageMetaFromCode(targetLanguage)
+  const source =
+    sourceLanguage === AUTO_SOURCE_LANGUAGE
+      ? null
+      : languageMetaFromCode(sourceLanguage)
   return (
     <div className="listening-footer" role="status">
       <span className="listening-bars" aria-hidden="true">
@@ -152,7 +172,9 @@ function ListeningFooter({
           ? caption
           : isPlaying
             ? 'Playing the translation…'
-            : `Listening — auto-detecting speech and translating into ${target.label}.`}
+            : source
+              ? `Listening — interpreting ${source.label} and ${target.label} both ways.`
+              : `Listening — detecting each utterance and interpreting both ways with ${target.label}.`}
       </p>
     </div>
   )
@@ -161,6 +183,7 @@ function ListeningFooter({
 type Props = {
   status: AppStatus
   lines: TranscriptLine[]
+  sourceLanguage: SourceLanguageCode
   targetLanguage: SupportedLanguageCode
   interimText?: string
   isPlaying?: boolean
@@ -169,6 +192,7 @@ type Props = {
 export function Transcript({
   status,
   lines,
+  sourceLanguage,
   targetLanguage,
   interimText,
   isPlaying,
@@ -190,7 +214,10 @@ export function Transcript({
       {!showTurns && status === 'loading' ? (
         <ConnectingState />
       ) : !showTurns ? (
-        <EmptyState targetLanguage={targetLanguage} />
+        <EmptyState
+          sourceLanguage={sourceLanguage}
+          targetLanguage={targetLanguage}
+        />
       ) : (
         <ol className="turn-list">
           {lines.map((line, index) => (
@@ -201,6 +228,7 @@ export function Transcript({
           {status === 'listening' ? (
             <li>
               <ListeningFooter
+                sourceLanguage={sourceLanguage}
                 targetLanguage={targetLanguage}
                 caption={interimText}
                 isPlaying={isPlaying}

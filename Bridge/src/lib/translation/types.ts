@@ -8,8 +8,8 @@
  */
 
 /** Shared target-language contract used by the frontend and token endpoint. */
-import type { SupportedLanguageCode } from '../../types'
-export type { SupportedLanguageCode }
+import type { SourceLanguageCode, SupportedLanguageCode } from '../../types'
+export type { SourceLanguageCode, SupportedLanguageCode }
 
 /**
  * Session lifecycle states.
@@ -81,6 +81,7 @@ export interface InterimTranscript {
 /** Snapshot handed to subscribers on every change. */
 export interface TranslationSessionSnapshot {
   state: SessionState
+  sourceLanguage: SourceLanguageCode
   targetLanguage: SupportedLanguageCode
   error: SessionError | null
   /** Finalised turns, oldest first. */

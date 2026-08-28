@@ -1,13 +1,16 @@
 import {
+  AUTO_SOURCE_LANGUAGE,
   supportedLanguages,
   type AppStatus,
   type ControlId,
+  type SourceLanguageCode,
   type SupportedLanguageCode,
 } from '../types'
 import { DemoStates } from './DemoStates'
 import './ControlDock.css'
 
 type Props = {
+  sourceLanguage: SourceLanguageCode
   targetLanguage: SupportedLanguageCode
   status: AppStatus
   isListening: boolean
@@ -15,6 +18,7 @@ type Props = {
     controlId: ControlId,
   ) => (element: HTMLElement | null) => void
   demoDetailsRef: React.RefObject<HTMLDetailsElement | null>
+  onSelectSourceLanguage: (language: SourceLanguageCode) => void
   onSelectTargetLanguage: (language: SupportedLanguageCode) => void
   onStart: () => void
   onStop: () => void
@@ -46,11 +50,13 @@ function MicIcon() {
 
 // The dock keeps the output language and microphone controls reachable.
 export function ControlDock({
+  sourceLanguage,
   targetLanguage,
   status,
   isListening,
   registerControl,
   demoDetailsRef,
+  onSelectSourceLanguage,
   onSelectTargetLanguage,
   onStart,
   onStop,
@@ -63,12 +69,27 @@ export function ControlDock({
         <fieldset className="direction-field">
           <legend>Translation languages</legend>
           <div className="language-route">
-            <span className="language-source">
+            <label className="language-source">
               <span className="language-source-label">From</span>
-              Auto-detect
-            </span>
+              <select
+                ref={registerControl('source-language')}
+                value={sourceLanguage}
+                onChange={(event) =>
+                  onSelectSourceLanguage(
+                    event.target.value as SourceLanguageCode,
+                  )
+                }
+              >
+                <option value={AUTO_SOURCE_LANGUAGE}>Auto-detect</option>
+                {supportedLanguages.map((language) => (
+                  <option key={language.code} value={language.code}>
+                    {language.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <span className="language-arrow" aria-hidden="true">
-              →
+              ⇄
             </span>
             <label className="language-target">
               <span className="language-target-label">Translate into</span>

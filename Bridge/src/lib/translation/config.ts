@@ -1,3 +1,7 @@
+// Type-only, so the token endpoint can share these constants without pulling
+// the browser SDK into a serverless bundle.
+import type { EndSensitivity } from '@google/genai'
+
 /**
  * Live translation model.
  *
@@ -61,8 +65,85 @@ export const OUTPUT_SAMPLE_RATE = 24000
 /** Chunk length sent to the API. 100 ms keeps latency low without flooding the socket. */
 export const CAPTURE_CHUNK_MS = 100
 
+/**
+ * Non-speech the API must hear before it commits end-of-speech.
+ *
+ * Long enough that a natural mid-sentence pause does not split an utterance,
+ * short enough that the speaker's turn closes while the conversation still
+ * feels live.
+ */
+export const END_OF_SPEECH_SILENCE_MS = 700
+
+/**
+ * How readily automatic activity detection decides speech has ended.
+ *
+ * This is the documented Gemini Live default, restated because the alternative
+ * is tempting and wrong for this product: `END_SENSITIVITY_LOW` "ends speech
+ * less often", so in a room with steady background noise the turn can stay
+ * open indefinitely and nothing is ever transcribed. Tolerance for pauses
+ * comes from `END_OF_SPEECH_SILENCE_MS` instead.
+ *
+ * The ephemeral token carries the session setup it constrains, so this value
+ * has to match on both sides: the token request in `api/live-token.ts` and the
+ * browser's Live config in `liveTransport.ts`.
+ */
+export const END_OF_SPEECH_SENSITIVITY =
+  'END_SENSITIVITY_HIGH' as EndSensitivity
+
+/**
+ * Grace period that lets the trailing pieces of one utterance's transcription
+ * join the row they belong to.
+ *
+ * Input transcription arrives as a complete utterance and output transcription
+ * streams word by word, but neither is ordered against `serverContent`, so a
+ * fragment can land just after the signal that the turn is over. Committing a
+ * transcript row this long after the last fragment keeps one spoken sentence in
+ * one row without waiting on the model.
+ */
+export const TRANSCRIPT_SETTLE_MS = 300
+
+/**
+ * Fallback that commits already-transcribed text when the API stops talking
+ * about the turn without ever closing it.
+ *
+ * This never truncates speech and never stops the microphone: it only publishes
+ * text the API has already sent, so the worst case is a row that is committed
+ * slightly early and continues in the next row. It exists because
+ * `turnComplete` is not guaranteed to arrive — an interrupted turn skips
+ * `generationComplete`, and a session that goes away mid-utterance sends
+ * neither.
+ */
+export const TRANSCRIPT_IDLE_FINALIZE_MS = 2000
+
+/** Prevent translated speaker audio from being captured and translated back. */
+export const PLAYBACK_ECHO_GUARD_MS = 350
+
+/**
+ * Extra time allowed past the end of the scheduled audio before the session
+ * stops believing playback is still running.
+ *
+ * The microphone is fed silence while the translation is audible, so a playback
+ * completion that never arrives would leave the session deaf and permanently
+ * "playing". The playback scheduler reports how much audio is still queued on
+ * its own clock, so the watchdog only has to cover the gap between that clock
+ * running out and the callback being delivered.
+ */
+export const PLAYBACK_WATCHDOG_SLACK_MS = 1500
+
+/**
+ * Ceiling on audio a route may hold while it is not yet known whether it owns
+ * the utterance, in bytes of PCM16 at `OUTPUT_SAMPLE_RATE` (about ten seconds).
+ *
+ * Ownership is normally settled before the first chunk arrives; the buffer only
+ * covers the case where the deciding evidence is a beat behind the audio.
+ */
+export const MAX_UNOWNED_AUDIO_BYTES = OUTPUT_SAMPLE_RATE * 2 * 10
+
 /** MIME type for realtime audio input, including the required sample rate. */
 export const INPUT_AUDIO_MIME_TYPE = `audio/pcm;rate=${INPUT_SAMPLE_RATE}`
 
 /** Auto-detected speech is translated into English until the user chooses otherwise. */
 export const DEFAULT_TARGET_LANGUAGE = 'en'
+
+/** Auto mode is retained, but users can choose an explicit source language. */
+export const DEFAULT_SOURCE_LANGUAGE = 'auto'

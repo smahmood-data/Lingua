@@ -1,6 +1,6 @@
 import { EPHEMERAL_TOKEN_PREFIX, LIVE_TOKEN_ENDPOINT } from './config'
 import { sessionError } from './errors'
-import type { SupportedLanguageCode } from './types'
+import type { SourceLanguageCode, SupportedLanguageCode } from './types'
 
 /**
  * Adapter for the ephemeral-token endpoint owned by Issue #1.
@@ -21,10 +21,13 @@ export interface LiveToken {
   model?: string
   /** ISO timestamp, when the server reports one. Informational only. */
   expiresAt?: string
+  /** Exact instruction included in the server-side token constraints. */
+  systemInstruction: string
 }
 
 export interface LiveTokenRequest {
   signal: AbortSignal
+  sourceLanguage: SourceLanguageCode
   targetLanguage: SupportedLanguageCode
 }
 
@@ -51,8 +54,13 @@ export function parseLiveTokenResponse(body: unknown): LiveToken {
 
   const root = body as Record<string, unknown>
   const token = readString(root, 'token')
+  const systemInstruction = readString(root, 'systemInstruction')
 
-  if (!token || !token.startsWith(EPHEMERAL_TOKEN_PREFIX)) {
+  if (
+    !token ||
+    !token.startsWith(EPHEMERAL_TOKEN_PREFIX) ||
+    !systemInstruction
+  ) {
     throw sessionError('token-request-failed')
   }
 
@@ -60,6 +68,7 @@ export function parseLiveTokenResponse(body: unknown): LiveToken {
     token,
     model: readString(root, 'model'),
     expiresAt: readString(root, 'expiresAt'),
+    systemInstruction,
   }
 }
 
@@ -77,8 +86,12 @@ export function parseLiveTokenResponse(body: unknown): LiveToken {
 export function createLiveTokenProvider(
   endpoint: string = LIVE_TOKEN_ENDPOINT,
 ): LiveTokenProvider {
-  return async ({ signal, targetLanguage }) => {
-    const url = `${endpoint}?target=${encodeURIComponent(targetLanguage)}`
+  return async ({ signal, sourceLanguage, targetLanguage }) => {
+    const parameters = new URLSearchParams({
+      source: sourceLanguage,
+      target: targetLanguage,
+    })
+    const url = `${endpoint}?${parameters.toString()}`
 
     let response: Response
     try {
