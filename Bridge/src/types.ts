@@ -245,6 +245,35 @@ export function isSourceLanguageCode(code: string): code is SourceLanguageCode {
 }
 
 /**
+ * The writing system `text` is in, when it is one that narrows the language
+ * down at all. Latin script is shared by too many languages to be a signal.
+ */
+function scriptOf(text: string) {
+  return scriptLanguagePatterns.find((candidate) => candidate.pattern.test(text))
+}
+
+/** Whether `text` is written in a script that says anything about its language. */
+export function textHasScriptEvidence(text: string): boolean {
+  return scriptOf(text) !== undefined
+}
+
+/**
+ * Whether the writing system of `text` can belong to `language`.
+ *
+ * Only ever used to *reject* a claim, never to make one: Latin text supports
+ * every Latin-script language equally, so the answer there is always yes.
+ * Incompatible non-Latin script is the evidence this check can reject.
+ */
+export function scriptSupportsLanguage(language: string, text: string): boolean {
+  const script = scriptOf(text)
+  if (!script) return true
+  if (languageCodesMatch(script.language, language)) return true
+  return Boolean(
+    script.compatible?.some((candidate) => languageCodesMatch(candidate, language)),
+  )
+}
+
+/**
  * Prefer an unambiguous writing-system signal over stale model metadata.
  * Live Translate can occasionally carry a Latin-language guess into the next
  * turn even when the finalized transcript is plainly Arabic, Han, Hangul, etc.

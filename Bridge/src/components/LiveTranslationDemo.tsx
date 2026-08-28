@@ -15,7 +15,8 @@ function stateLabel(state: SessionState, targetLanguage: SupportedLanguageCode) 
   const target = languageMetaFromCode(targetLanguage).label
   if (state === 'connecting') return 'Connecting…'
   if (state === 'listening') return 'Listening with automatic language detection'
-  if (state === 'translating') return `Playing ${target} translation`
+  if (state === 'translating') return 'Interpreting the last utterance…'
+  if (state === 'playing') return `Playing the ${target} translation`
   if (state === 'error') return 'Error'
   return 'Stopped'
 }
@@ -48,7 +49,7 @@ export function LiveTranslationDemo() {
   const {
     state,
     error,
-    transcript,
+    turns,
     interimTranscript,
     isActive,
     sourceLanguage,
@@ -62,9 +63,9 @@ export function LiveTranslationDemo() {
     <main style={page}>
       <h1>Two-way live translation</h1>
       <p>
-        Developer harness for a two-way interpreted conversation. Auto mode
-        re-detects every utterance; selecting a source pins a known language
-        pair.
+        Developer harness for a two-way interpreted conversation. Selecting a
+        source pins the language pair; auto mode learns the other language and
+        can correct that choice when clearer speech disagrees.
       </p>
 
       <div style={controls}>
@@ -118,7 +119,7 @@ export function LiveTranslationDemo() {
         <button
           type="button"
           onClick={clearTranscript}
-          disabled={transcript.length === 0}
+          disabled={turns.length === 0}
         >
           Clear transcript
         </button>
@@ -137,17 +138,27 @@ export function LiveTranslationDemo() {
 
       <section style={panel}>
         <h2>Transcript</h2>
-        {transcript.length === 0 && !interimTranscript ? (
+        {turns.length === 0 && !interimTranscript ? (
           <p>No transcript yet. Gemini sends these once it hears speech.</p>
         ) : (
           <ol>
-            {transcript.map((turn) => (
-              <li key={turn.id} lang={turn.languageCode}>
+            {turns.map((turn) => (
+              <li key={turn.id}>
                 <strong>
-                  {turn.kind === 'source' ? 'Heard' : 'Translated'} (
-                  {turn.languageCode}){turn.isFinal ? '' : ' …'}
+                  Heard ({turn.sourceLanguage ?? 'detecting'})
+                  {turn.status === 'complete' ? '' : ` — ${turn.status}…`}
                 </strong>
-                <div>{turn.text}</div>
+                <div lang={turn.sourceLanguage ?? undefined}>
+                  {turn.sourceText}
+                </div>
+                {turn.translatedText ? (
+                  <>
+                    <strong>Translated ({turn.targetLanguage})</strong>
+                    <div lang={turn.targetLanguage ?? undefined}>
+                      {turn.translatedText}
+                    </div>
+                  </>
+                ) : null}
               </li>
             ))}
           </ol>

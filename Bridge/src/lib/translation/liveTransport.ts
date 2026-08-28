@@ -7,7 +7,6 @@ import {
   INPUT_AUDIO_MIME_TYPE,
   LIVE_API_VERSION,
   TRANSCRIPT_IDLE_FINALIZE_MS,
-  TRANSCRIPT_SETTLE_MS,
 } from './config'
 import { sessionError } from './errors'
 import { resolveTranscriptLanguage } from '../../types'
@@ -22,21 +21,49 @@ import { base64ToBytes } from './audio/pcm'
  * heard, rendered into this one language". Deciding which route a given
  * utterance belongs to needs both routes' evidence side by side, so it is not
  * decided here — this module only normalises the wire protocol into the events
- * below and leaves every judgement to `TranslationSession`.
+ * below and leaves every judgement to `ConversationCoordinator`.
+ */
+/**
+ * Which run of events an event belongs to.
+ *
+ * `utterance` counts finalized input runs from one route and `generation`
+ * counts model responses. A finalized input run can be only a sub-sentence ASR
+ * segment; `ConversationCoordinator` groups those transport ids into the human
+ * conversational turn. The ids still matter because late events must not land
+ * on a later product turn.
  */
 export interface LiveTransportEvents {
+  /** Gemini started a new input run (not necessarily a whole human thought). */
+  onSpeechStart: (utterance: number) => void
+  /** Gemini's VAD says that human utterance has ended. */
+  onSpeechEnd: (utterance: number) => void
   /** Translated audio, as little-endian PCM16 at `OUTPUT_SAMPLE_RATE`. */
-  onAudio: (pcm16: Uint8Array) => void
-  /** Consolidated transcription of one thing the speaker said. */
-  onSourceTranscript: (transcription: Transcription) => void
-  /** Consolidated transcription of what this route generated for that speech. */
-  onTranslationTranscript: (transcription: Transcription) => void
+  onAudio: (pcm16: Uint8Array, generation: number) => void
+  /**
+   * Everything transcribed of the current utterance, on every update.
+   *
+   * `finished` ends this transcription segment. The browser traces demonstrate
+   * that several such segments can belong to one human sentence, so it is not
+   * promoted to a product turn boundary here.
+   */
+  onSourceTranscript: (
+    transcription: Transcription,
+    finished: boolean,
+    utterance: number,
+  ) => void
+  /** Everything this route has generated for that speech so far. */
+  onTranslationTranscript: (
+    transcription: Transcription,
+    generation: number,
+  ) => void
   /** Speculative partial transcription of the speaker, updated while talking. */
-  onInterimTranscript: (transcription: Transcription) => void
+  onInterimTranscript: (transcription: Transcription, utterance: number) => void
   /** The model's current output was cut off; queued playback is stale. */
-  onInterrupted: () => void
+  onInterrupted: (generation: number) => void
+  /** The model has produced the last audio chunk for this response. */
+  onGenerationComplete: (generation: number) => void
   /** This route is finished with the utterance it was working on. */
-  onTurnEnd: () => void
+  onTurnEnd: (utterance: number, generation: number) => void
   /** The socket closed. `expected` is false for a drop we did not initiate. */
   onClosed: (expected: boolean) => void
   /** A transport-level error, ahead of the close event. */
@@ -140,6 +167,21 @@ function mergeTranscriptionText(current: string, incoming: string): string {
   return `${current}${needsSpace ? ' ' : ''}${next}`
 }
 
+/**
+ * Whether a transcription carries any of what a person said.
+ *
+ * Live sends contentless `inputTranscription` and `outputTranscription`
+ * messages as bookkeeping — a boundary marker with `finished` set and no text.
+ * Treating one as a human utterance is what produced 33 zero-length source
+ * transcripts and 21 ghost turns in 44 seconds of a real session: each one
+ * advanced the utterance counter, ended the turn actually in progress, opened a
+ * new one, and re-labelled the response still streaming so it was charged to
+ * the ghost.
+ */
+function hasSpeech(transcription: Transcription | undefined): boolean {
+  return Boolean(transcription?.text?.trim())
+}
+
 function mergeTranscription(
   current: Transcription | null,
   incoming: Transcription,
@@ -155,8 +197,8 @@ function mergeTranscription(
 }
 
 /**
- * A single rearmable timeout. Arming replaces any pending run, so the callers
- * below can extend a settle window without tracking handles themselves.
+ * A single rearmable timeout. Arming replaces any pending run, so the caller
+ * below can extend the idle window without tracking handles itself.
  */
 function createRearmableTimer() {
   let handle: ReturnType<typeof setTimeout> | null = null
@@ -208,8 +250,30 @@ export async function connectLiveTransport(
   let translationTranscript: Transcription | null = null
   /** Whether anything has been reported about the utterance in progress. */
   let turnOpen = false
-  const sourceSettle = createRearmableTimer()
-  const translationSettle = createRearmableTimer()
+  /** Monotonic id of the finalized input run this route is reporting. */
+  let utterance = 0
+  /** Monotonic id of the model response this route is producing. */
+  let generation = 0
+  /** The person is inside a server-detected speech region. */
+  let utteranceOpen = false
+  /** The current utterance has a definitive human-speech boundary. */
+  let utteranceEnded = true
+  /** Once present, server VAD — rather than transcript arrival order — owns ids. */
+  let activitySignalsSeen = false
+  /** Human utterance the current model response answers. */
+  let generationUtterance = 0
+  /**
+   * The model is part-way through one response.
+   *
+   * A response ends when the API says so — `generationComplete`, `turnComplete`,
+   * `interrupted`, or this route being released — and at no other time. It used
+   * to end whenever the utterance counter moved, which meant one response
+   * streaming while the counter advanced was split across two generation ids and
+   * charged to two different turns.
+   */
+  let generationOpen = false
+  /** Locally closed turns whose delayed server `turnComplete` is still expected. */
+  let pendingServerTurnEnds = 0
   const idleFinalize = createRearmableTimer()
   let rejectConnect: (reason: unknown) => void = () => undefined
   const connectFailed = new Promise<never>((_, reject) => {
@@ -228,37 +292,77 @@ export async function connectLiveTransport(
     }
   }
 
-  const flushSource = () => {
-    sourceSettle.cancel()
-    const pending = sourceTranscript
-    sourceTranscript = null
-    if (pending?.text?.trim()) {
-      options.events.onSourceTranscript(pending)
-    }
-  }
-
-  const flushTranslation = () => {
-    translationSettle.cancel()
-    const pending = translationTranscript
-    translationTranscript = null
-    if (pending?.text?.trim()) {
-      options.events.onTranslationTranscript(pending)
-    }
-  }
-
-  const flushTranscripts = () => {
-    flushSource()
-    flushTranslation()
-  }
-
-  /** Publish whatever is known and hand the utterance back to the session. */
-  const endTurn = () => {
+  const reportTurnEnd = () => {
     idleFinalize.cancel()
-    flushTranscripts()
+    generationOpen = false
     if (turnOpen) {
       turnOpen = false
-      options.events.onTurnEnd()
+      options.events.onTurnEnd(utterance, generation)
     }
+  }
+
+  /**
+   * Begin one server-detected human utterance.
+   *
+   * A new speech start is also a local boundary for a server turn whose
+   * `turnComplete` is still delayed by realtime playback. The delayed message is
+   * consumed later instead of being allowed to close the new human turn.
+   */
+  const beginUtterance = (fromActivity = false) => {
+    if (fromActivity) activitySignalsSeen = true
+    if (utteranceOpen) return
+
+    // With VAD signals, a transcription delivered after ACTIVITY_END is late
+    // evidence for that same utterance, so ACTIVITY_START normally creates the
+    // next id. Only while the route is still working on that utterance, though:
+    // once it has handed it back, the next thing transcribed is the next thing
+    // somebody said. `voiceActivity` is a newer, partly gated Live feature, and
+    // deferring to signals that have stopped arriving froze the utterance id
+    // after the first turn — every later transcription was then dropped as
+    // already committed and the conversation ended at one exchange.
+    if (!fromActivity && activitySignalsSeen && utterance > 0 && turnOpen) {
+      return
+    }
+
+    if (turnOpen && utterance > 0) {
+      reportTurnEnd()
+      pendingServerTurnEnds += 1
+    }
+
+    utterance += 1
+    utteranceOpen = true
+    utteranceEnded = false
+    sourceTranscript = null
+    turnOpen = true
+    // Whatever the model was saying was an answer to the previous utterance.
+    generationOpen = false
+    if (generation > 0 && generationUtterance === 0) {
+      generationUtterance = utterance
+    }
+    options.events.onSpeechStart(utterance)
+  }
+
+  /** Seal the human-speech boundary once, independently of model playback. */
+  const endUtterance = () => {
+    if (utterance === 0 || utteranceEnded) return
+    utteranceOpen = false
+    utteranceEnded = true
+    options.events.onSpeechEnd(utterance)
+  }
+
+  /** Begin the response for the current human utterance. */
+  const beginGeneration = () => {
+    if (generationOpen) return
+    generation += 1
+    generationOpen = true
+    generationUtterance = utterance
+    translationTranscript = null
+  }
+
+  /** Hand the current server turn back to the session. */
+  const endTurn = () => {
+    endUtterance()
+    reportTurnEnd()
   }
 
   const armIdleFinalize = () => {
@@ -268,8 +372,8 @@ export async function connectLiveTransport(
     }
     // `turnComplete` is not guaranteed: an interrupted turn skips
     // `generationComplete`, and a session that goes away mid-utterance sends
-    // neither. Closing the turn locally only publishes text the API already
-    // sent and releases the route to arbitrate the next utterance.
+    // neither. Ending the turn locally releases this route to take part in the
+    // next utterance; it never truncates or discards anything already reported.
     idleFinalize.arm(TRANSCRIPT_IDLE_FINALIZE_MS, endTurn)
   }
 
@@ -305,69 +409,116 @@ export async function connectLiveTransport(
             // so a raw throw here would surface as an unhandled rejection and the
             // rest of the message would be silently lost.
             try {
+              const activity =
+                message.voiceActivity?.voiceActivityType ??
+                message.voiceActivityDetectionSignal?.vadSignalType
+              if (
+                activity === 'ACTIVITY_START' ||
+                activity === 'VAD_SIGNAL_TYPE_SOS'
+              ) {
+                beginUtterance(true)
+              } else if (
+                activity === 'ACTIVITY_END' ||
+                activity === 'VAD_SIGNAL_TYPE_EOS'
+              ) {
+                activitySignalsSeen = true
+                endUtterance()
+              }
+
               const content = message.serverContent
               if (!content) {
+                armIdleFinalize()
                 return
               }
 
               if (content.interrupted) {
                 // Only the model's *output* was cut off, so its queued audio is
-                // stale. What the speaker said is not: publish it rather than
-                // losing a turn they actually spoke.
-                options.events.onInterrupted()
+                // stale. What the speaker said is not, and has already been
+                // reported, so the coordinator keeps the turn it belongs to.
+                const wasOpen = turnOpen
+                generationOpen = false
+                options.events.onInterrupted(generation)
                 endTurn()
+                if (wasOpen) pendingServerTurnEnds += 1
               }
 
-              if (content.interimInputTranscription) {
+              if (hasSpeech(content.interimInputTranscription)) {
+                // Deliberately after `beginUtterance`, which asks whether this
+                // route already had a turn open. Setting it first answered
+                // "yes" for the first message of every new utterance, ending a
+                // turn that was already over and leaving the route expecting a
+                // server `turnComplete` that had already been consumed.
+                beginUtterance()
                 turnOpen = true
                 options.events.onInterimTranscript(
-                  content.interimInputTranscription,
+                  content.interimInputTranscription!,
+                  utterance,
                 )
               }
               if (content.inputTranscription) {
-                turnOpen = true
-                sourceTranscript = mergeTranscription(
-                  sourceTranscript,
-                  content.inputTranscription,
-                )
-                if (content.inputTranscription.finished) {
-                  // The API says this is the whole utterance, so there is
-                  // nothing to wait for.
-                  flushSource()
-                } else {
-                  // Otherwise settle briefly, so a trailing fragment joins the
-                  // row it belongs to instead of starting a new one.
-                  sourceSettle.arm(TRANSCRIPT_SETTLE_MS, flushSource)
+                if (hasSpeech(content.inputTranscription)) {
+                  beginUtterance()
+                  turnOpen = true
+                  sourceTranscript = mergeTranscription(
+                    sourceTranscript,
+                    content.inputTranscription,
+                  )
+                  // Live Translate finalizes transcription segments here.
+                  // Several `finished=true` segments may still be one human
+                  // thought; the coordinator joins their transport ids while
+                  // the product turn remains open.
+                  const finished = content.inputTranscription.finished !== false
+                  options.events.onSourceTranscript(
+                    sourceTranscript,
+                    finished,
+                    utterance,
+                  )
+                  if (finished) endUtterance()
+                } else if (content.inputTranscription.finished !== false) {
+                  // A boundary with nothing in it. It closes the utterance that
+                  // is open, and creates nothing: nobody said anything.
+                  endUtterance()
                 }
               }
-              if (content.outputTranscription) {
+              if (hasSpeech(content.outputTranscription)) {
+                beginGeneration()
                 turnOpen = true
                 translationTranscript = mergeTranscription(
                   translationTranscript,
-                  content.outputTranscription,
+                  content.outputTranscription!,
                 )
-                if (content.outputTranscription.finished) {
-                  flushTranslation()
-                } else {
-                  translationSettle.arm(TRANSCRIPT_SETTLE_MS, flushTranslation)
-                }
+                options.events.onTranslationTranscript(
+                  translationTranscript,
+                  generation,
+                )
               }
 
               for (const chunk of readAudioParts(message)) {
+                beginGeneration()
                 turnOpen = true
-                options.events.onAudio(chunk)
+                options.events.onAudio(chunk, generation)
               }
 
               if (content.generationComplete) {
-                // The model has stopped generating. `turnComplete` then waits
-                // for its realtime playback estimate to drain, which is several
-                // seconds later, so the transcript is settled from here.
-                flushSource()
-                translationSettle.arm(TRANSCRIPT_SETTLE_MS, flushTranslation)
+                generationOpen = false
+                // The output boundary: the SDK documents turnComplete as
+                // arriving later while the server waits out its realtime
+                // playback estimate. Audio release and browser playback must
+                // never wait for that server-side estimate.
+                options.events.onGenerationComplete(generation)
+                // The model has answered what it heard, so whatever is
+                // transcribed next is the next thing somebody said. This is the
+                // boundary that still holds if the API never marks an input
+                // transcription finished.
+                endUtterance()
               }
 
               if (content.turnComplete) {
-                endTurn()
+                if (pendingServerTurnEnds > 0) {
+                  pendingServerTurnEnds -= 1
+                } else {
+                  endTurn()
+                }
               }
 
               armIdleFinalize()
@@ -455,9 +606,7 @@ export async function connectLiveTransport(
       }
       closedByClient = true
       // Nothing may reach the event callbacks after the caller has released the
-      // transport, so the settle windows are dropped rather than allowed to run.
-      sourceSettle.cancel()
-      translationSettle.cancel()
+      // transport, so the idle window is dropped rather than allowed to run.
       idleFinalize.cancel()
       try {
         // Documented signal that the microphone was turned off while automatic

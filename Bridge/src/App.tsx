@@ -6,7 +6,11 @@ import { Transcript } from './components/Transcript'
 import { mockTranscripts } from './data/mockTranscripts'
 import { useControlKeyboard } from './hooks/useControlKeyboard'
 import { useTranslationSession } from './hooks/useTranslationSession'
-import type { SessionError, SessionState, TranscriptTurn } from './lib/translation'
+import type {
+  ConversationTurn,
+  SessionError,
+  SessionState,
+} from './lib/translation'
 import {
   AUTO_SOURCE_LANGUAGE,
   controlIds,
@@ -28,64 +32,45 @@ function toAppStatus(
   if (error?.code === 'live-disconnected') return 'disconnected'
   if (state === 'error') return 'error'
   if (state === 'connecting') return 'loading'
-  if (state === 'listening' || state === 'translating') return 'listening'
+  if (state === 'listening' || state === 'translating' || state === 'playing') {
+    return 'listening'
+  }
   return 'ready'
 }
 
+/**
+ * One conversation turn is one row. There is nothing to pair up here: the
+ * coordinator already decided which words belong to which utterance, so the UI
+ * never has to guess that a translation goes with the line above it.
+ */
 function toTranscriptLines(
-  turns: TranscriptTurn[],
+  turns: ConversationTurn[],
   targetLanguage: SupportedLanguageCode,
 ): TranscriptLine[] {
-  const lines: TranscriptLine[] = []
-  let pendingSource: TranscriptTurn | null = null
-  let id = 1
-
-  const pushLine = (
-    source: TranscriptTurn | null,
-    translation: TranscriptTurn | null,
-  ) => {
-    const spoken = source ?? translation
-    if (!spoken) return
-
-    const originalLanguage = languageMetaFromCode(
-      source?.languageCode ?? spoken.languageCode,
+  return turns.map((turn, index) => {
+    const originalLanguage = languageMetaFromCode(turn.sourceLanguage ?? 'und')
+    const translatedLanguage = languageMetaFromCode(
+      turn.targetLanguage ?? targetLanguage,
     )
-    const translatedLanguage = translation
-      ? languageMetaFromCode(translation.languageCode)
-      : languageMetaFromCode(targetLanguage)
 
-    lines.push({
-      id,
+    return {
+      id: index + 1,
       speaker: `${originalLanguage.label} speaker`,
       originalLanguage: originalLanguage.label,
       originalLanguageCode: originalLanguage.code,
       translatedLanguage: translatedLanguage.label,
       translatedLanguageCode: translatedLanguage.code,
-      original: source?.text ?? '',
-      translated: translation?.text ?? '',
-    })
-    id += 1
-  }
-
-  for (const turn of turns) {
-    if (turn.kind === 'source') {
-      if (pendingSource) pushLine(pendingSource, null)
-      pendingSource = turn
-      continue
+      original: turn.sourceText,
+      translated: turn.translatedText,
     }
-    pushLine(pendingSource, turn)
-    pendingSource = null
-  }
-
-  if (pendingSource) pushLine(pendingSource, null)
-  return lines
+  })
 }
 
 function App() {
   const {
     state,
     error,
-    transcript,
+    turns,
     interimTranscript,
     isActive,
     sourceLanguage,
@@ -123,7 +108,7 @@ function App() {
   }, [])
 
   const isListening = isActive
-  const liveLines = toTranscriptLines(transcript, targetLanguage)
+  const liveLines = toTranscriptLines(turns, targetLanguage)
   const lines = usingPreview ? mockTranscripts : liveLines
 
   const selectSourceLanguage = useCallback(
@@ -190,7 +175,8 @@ function App() {
           sourceLanguage={sourceLanguage}
           targetLanguage={targetLanguage}
           interimText={interimTranscript?.text}
-          isPlaying={state === 'translating'}
+          isPlaying={state === 'playing'}
+          isTranslating={state === 'translating'}
         />
       </main>
 

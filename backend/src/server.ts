@@ -116,15 +116,14 @@ const SUPPORTED_TARGET_LANGUAGE_SET = new Set<string>(SUPPORTED_TARGET_LANGUAGES
 /**
  * Automatic activity detection for the sessions this token constrains.
  *
- * The silence duration is long enough that a mid-sentence pause does not split
- * an utterance. Sensitivity stays at the documented Gemini Live default:
- * `END_SENSITIVITY_LOW` ends speech less often, so in a room with steady
- * background noise the speaker's turn can stay open indefinitely and nothing is
- * ever transcribed. Mirrors `END_OF_SPEECH_*` in the frontend's translation
- * config; the token constrains the session setup, so the two must agree.
+ * The low end sensitivity prevents ordinary mid-sentence pauses from becoming
+ * separate model turns. The explicit silence duration still provides a bounded
+ * end-of-speech fallback. Mirrors `END_OF_SPEECH_*` in the frontend's
+ * translation config; the token constrains the session setup, so the two must
+ * agree.
  */
 const END_OF_SPEECH_SILENCE_MS = 700;
-const END_OF_SPEECH_SENSITIVITY = 'END_SENSITIVITY_HIGH';
+const END_OF_SPEECH_SENSITIVITY = 'END_SENSITIVITY_LOW';
 type SummaryArrayKey = Exclude<keyof ConversationSummary, 'summary'>;
 
 const SUMMARY_ARRAY_KEYS: SummaryArrayKey[] = [

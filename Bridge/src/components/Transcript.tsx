@@ -148,11 +148,13 @@ function ListeningFooter({
   targetLanguage,
   caption,
   isPlaying,
+  isTranslating,
 }: {
   sourceLanguage: SourceLanguageCode
   targetLanguage: SupportedLanguageCode
   caption?: string
   isPlaying?: boolean
+  isTranslating?: boolean
 }) {
   const target = languageMetaFromCode(targetLanguage)
   const source =
@@ -172,9 +174,11 @@ function ListeningFooter({
           ? caption
           : isPlaying
             ? 'Playing the translation…'
-            : source
-              ? `Listening — interpreting ${source.label} and ${target.label} both ways.`
-              : `Listening — detecting each utterance and interpreting both ways with ${target.label}.`}
+            : isTranslating
+              ? 'Translating…'
+              : source
+                ? `Listening — interpreting ${source.label} and ${target.label} both ways.`
+                : `Listening — detecting each utterance and interpreting both ways with ${target.label}.`}
       </p>
     </div>
   )
@@ -186,7 +190,10 @@ type Props = {
   sourceLanguage: SourceLanguageCode
   targetLanguage: SupportedLanguageCode
   interimText?: string
+  /** True only while translated speech is physically audible. */
   isPlaying?: boolean
+  /** True while an utterance is being interpreted but nothing is audible yet. */
+  isTranslating?: boolean
 }
 
 export function Transcript({
@@ -196,6 +203,7 @@ export function Transcript({
   targetLanguage,
   interimText,
   isPlaying,
+  isTranslating,
 }: Props) {
   // Interrupted sessions keep their transcript; states that never started
   // (ready, connecting, mic blocked) show an intentional placeholder instead.
@@ -232,6 +240,7 @@ export function Transcript({
                 targetLanguage={targetLanguage}
                 caption={interimText}
                 isPlaying={isPlaying}
+                isTranslating={isTranslating}
               />
             </li>
           ) : null}

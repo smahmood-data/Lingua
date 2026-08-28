@@ -23,10 +23,14 @@ vi.mock('./liveTransport', () => ({
   connectLiveTransport: dependencies.connectLiveTransport,
 }))
 
-import { PLAYBACK_ECHO_GUARD_MS } from './config'
+import { PLAYBACK_ECHO_GUARD_MS, UTTERANCE_JOIN_MS } from './config'
 import { encodeCaptureChunk } from './audio/pcm'
 import { TranslationSession } from './translationSession'
-import type { SourceLanguageCode, SupportedLanguageCode } from './types'
+import type {
+  ConversationTurn,
+  SourceLanguageCode,
+  SupportedLanguageCode,
+} from './types'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -40,7 +44,8 @@ function deferred<T>() {
 
 function playback(): PlaybackScheduler {
   return {
-    enqueue: vi.fn(),
+    enqueue: vi.fn(() => true),
+    endStream: vi.fn(),
     flush: vi.fn(),
     remainingMs: vi.fn(() => 0),
     dispose: vi.fn(async () => undefined),
@@ -370,13 +375,15 @@ describe('TranslationSession startup ownership', () => {
   })
 })
 
+
+
 /**
  * A two-person conversation driven through a real `TranslationSession`.
  *
  * The point of these tests is who is speaking. Every open route hears the same
  * microphone and reports on the same speech, so each utterance is delivered to
  * all of them and the test says what each one made of it — including the ways
- * the real API gets it wrong, which is what the arbitration exists for.
+ * the real API gets it wrong, which is what the ownership rules exist for.
  */
 
 /** One recognisable byte per language, so playback can be attributed. */
@@ -388,13 +395,17 @@ const VOICES: Record<string, number> = {
   fr: 5,
 }
 
-const voiceOf = (language: string) => new Uint8Array([VOICES[language]])
+const voiceOf = (language: string) => new Uint8Array([VOICES[language], 0])
 
 interface FakeRoute {
   target: SupportedLanguageCode
   events: LiveTransportEvents
   sent: string[]
   closed: boolean
+  /** Monotonic id of the human utterance this route is reporting. */
+  utterance: number
+  /** Monotonic id of the model response this route is producing. */
+  generation: number
 }
 
 /** What one route made of an utterance everybody heard. */
@@ -403,6 +414,8 @@ interface RouteOutcome {
   translation?: string
   /** Whether the model also spoke that text aloud. */
   audio?: boolean
+  /** Suppress this route's own generationComplete, as an interruption does. */
+  noCompletion?: boolean
 }
 
 interface Conversation {
@@ -412,10 +425,13 @@ interface Conversation {
   targets: () => string[]
   /** Languages actually played aloud, oldest first. */
   heard: () => string[]
-  /** Committed transcript as `kind:text`. */
+  /** Committed conversation as `sourceLanguage:source > target:translation`. */
   rows: () => string[]
+  turns: () => ConversationTurn[]
   state: () => string
-  /** Play the queued translation out to its end. */
+  counterpart: () => SupportedLanguageCode | null
+  playbackPending: () => boolean
+  /** Play the queued translation out to its end, the way the browser does. */
   finishPlayback: () => void
   /** Feed one buffer of room audio and return what the routes were sent. */
   hear: (samples: number[]) => string[]
@@ -436,33 +452,44 @@ async function conversation({
   const played: Uint8Array[] = []
   let micChunk: ((samples: Float32Array, sampleRate: number) => void) | null = null
   let playbackActive = false
+  let streamEnded = false
   let onPlaybackStart = () => {}
-  let onPlaybackDrained = () => {}
+  let onPlaybackEnd = () => {}
   let refused = false
+
+  const endPlayback = () => {
+    if (!playbackActive) return
+    playbackActive = false
+    streamEnded = false
+    onPlaybackEnd()
+  }
 
   dependencies.createPlaybackScheduler.mockImplementation(
     async (options: {
       onPlaybackStart: () => void
-      onPlaybackDrained: () => void
+      onPlaybackEnd: () => void
     }) => {
       onPlaybackStart = options.onPlaybackStart
-      onPlaybackDrained = options.onPlaybackDrained
+      onPlaybackEnd = options.onPlaybackEnd
       const scheduler: PlaybackScheduler = {
         enqueue: (pcm16) => {
           played.push(pcm16)
+          streamEnded = false
           if (!playbackActive) {
             playbackActive = true
             onPlaybackStart()
           }
+          return true
         },
-        flush: () => {
-          if (playbackActive) {
-            playbackActive = false
-            onPlaybackDrained()
-          }
+        // The real scheduler waits for the audio clock to reach the end of what
+        // is queued; here the test decides when that happens.
+        endStream: () => {
+          streamEnded = true
         },
+        flush: endPlayback,
         remainingMs: () => (playbackActive ? 1000 : 0),
-        dispose: async () => undefined,
+        // The real scheduler flushes before it closes its AudioContext.
+        dispose: async () => endPlayback(),
       }
       return scheduler
     },
@@ -488,6 +515,8 @@ async function conversation({
         events: options.events,
         sent: [],
         closed: false,
+        utterance: 0,
+        generation: 0,
       }
       routes.push(route)
       return {
@@ -517,13 +546,20 @@ async function conversation({
     rows: () =>
       controller
         .getSnapshot()
-        .transcript.map((turn) => `${turn.kind}:${turn.text}`),
+        .turns.map(
+          (turn) =>
+            `${turn.sourceLanguage ?? '?'}:${turn.sourceText}` +
+            (turn.translatedText
+              ? ` > ${turn.targetLanguage ?? '?'}:${turn.translatedText}`
+              : ''),
+        ),
+    turns: () => controller.getSnapshot().turns,
     state: () => controller.getSnapshot().state,
+    counterpart: () => controller.getSnapshot().counterpartLanguage,
+    playbackPending: () => playbackActive,
     finishPlayback: () => {
-      if (playbackActive) {
-        playbackActive = false
-        onPlaybackDrained()
-      }
+      // The browser only reports an end for audio the producer has finished.
+      if (playbackActive && streamEnded) endPlayback()
     },
     hear: (samples) => {
       const open = routes.filter((route) => !route.closed)
@@ -554,20 +590,50 @@ async function speak(
   for (const route of open) {
     const outcome = produced[route.target]
     if (!outcome) continue
-    route.events.onInterimTranscript({
-      text: said.text.slice(0, Math.ceil(said.text.length / 2)),
-      languageCode,
-    })
-    if (outcome.audio) route.events.onAudio(voiceOf(route.target))
-    route.events.onSourceTranscript({ text: said.text, languageCode })
-    if (outcome.translation !== undefined) {
-      route.events.onTranslationTranscript({ text: outcome.translation })
+    // A new thing was said, so this route moves on to its next utterance.
+    route.utterance += 1
+    route.events.onInterimTranscript(
+      {
+        text: said.text.slice(0, Math.ceil(said.text.length / 2)),
+        languageCode,
+      },
+      route.utterance,
+    )
+    route.events.onSourceTranscript(
+      { text: said.text, languageCode },
+      true,
+      route.utterance,
+    )
+    if (outcome.translation !== undefined || outcome.audio) {
+      route.generation += 1
     }
-    route.events.onTurnEnd()
+    if (outcome.translation !== undefined) {
+      route.events.onTranslationTranscript(
+        { text: outcome.translation },
+        route.generation,
+      )
+    }
+    if (outcome.audio) {
+      route.events.onAudio(voiceOf(route.target), route.generation)
+    }
+    if (outcome.audio && !outcome.noCompletion) {
+      route.events.onGenerationComplete(route.generation)
+    }
+    route.events.onTurnEnd(route.utterance, route.generation)
   }
 
   // Adopting a counterpart opens a route, which is asynchronous.
   await vi.advanceTimersByTimeAsync(0)
+}
+
+/** One whole exchange: somebody speaks and the translation plays out. */
+async function exchange(
+  talk: Conversation,
+  said: { language: string; text: string; reportedAs?: string | null },
+  produced: Record<string, RouteOutcome>,
+): Promise<void> {
+  await speak(talk, said, produced)
+  talk.finishPlayback()
 }
 
 describe('TranslationSession conversations', () => {
@@ -586,521 +652,492 @@ describe('TranslationSession conversations', () => {
     const talk = await conversation({ source: 'en', target: 'zh-Hans' })
     expect(talk.targets()).toEqual(['zh-Hans', 'en'])
 
-    await speak(
+    await exchange(
       talk,
       { language: 'en', text: 'Hello, how are you?' },
       {
         'zh-Hans': { translation: '你好，你好吗？', audio: true },
-        // The other route's target is the language being spoken, so all it can
-        // do is repeat the speaker.
-        en: { translation: 'Hello, how are you?' },
+        en: {},
       },
     )
-
-    expect(talk.rows()).toEqual([
-      'source:Hello, how are you?',
-      'translation:你好，你好吗？',
-    ])
-    expect(talk.heard()).toEqual(['zh-Hans'])
-    expect(talk.state()).toBe('translating')
-
-    talk.finishPlayback()
-    expect(talk.state()).toBe('listening')
-
-    await vi.advanceTimersByTimeAsync(3000)
-    await speak(
+    await exchange(
       talk,
-      { language: 'zh-Hans', text: '你好，我很好，谢谢。' },
+      { language: 'zh-Hans', text: '我很好，谢谢。' },
       {
-        en: { translation: "Hello, I'm doing well, thank you.", audio: true },
-        'zh-Hans': { translation: '你好，我很好，谢谢。' },
+        'zh-Hans': {},
+        en: { translation: 'I am well, thank you.', audio: true },
       },
     )
 
     expect(talk.rows()).toEqual([
-      'source:Hello, how are you?',
-      'translation:你好，你好吗？',
-      'source:你好，我很好，谢谢。',
-      "translation:Hello, I'm doing well, thank you.",
+      'en:Hello, how are you? > zh-Hans:你好，你好吗？',
+      'zh-Hans:我很好，谢谢。 > en:I am well, thank you.',
     ])
     expect(talk.heard()).toEqual(['zh-Hans', 'en'])
-
-    talk.finishPlayback()
     expect(talk.state()).toBe('listening')
-
-    await vi.advanceTimersByTimeAsync(3000)
-    await speak(
-      talk,
-      { language: 'en', text: 'Can we meet on Thursday?' },
-      {
-        'zh-Hans': { translation: '我们星期四可以见面吗？', audio: true },
-        en: { translation: 'Can we meet on Thursday?' },
-      },
-    )
-
-    expect(talk.rows().at(-1)).toBe('translation:我们星期四可以见面吗？')
-    expect(talk.heard()).toEqual(['zh-Hans', 'en', 'zh-Hans'])
-    talk.finishPlayback()
-    expect(talk.state()).toBe('listening')
-
-    // Three turns in both directions, on the two sockets the session opened.
+    // One socket per direction, opened once for the whole conversation.
     expect(talk.connectCount()).toBe(2)
-    await talk.controller.stop()
+  })
+
+  it('completes six alternating turns without restarting or doubling audio', async () => {
+    const talk = await conversation({ source: 'en', target: 'es' })
+    const script = [
+      ['en', 'Hey, how are you?', 'Hola, ¿cómo estás?'],
+      ['es', 'Bien, ¿y tú?', 'Good, and you?'],
+      ['en', 'I am good, thanks.', 'Estoy bien, gracias.'],
+      ['es', 'Me alegro mucho.', 'I am very glad.'],
+      ['en', 'Where are you from?', '¿De dónde eres?'],
+      ['es', 'Soy de Madrid.', 'I am from Madrid.'],
+    ] as const
+
+    for (const [language, text, translation] of script) {
+      const speaking = language === 'en' ? 'es' : 'en'
+      await exchange(
+        talk,
+        { language, text },
+        {
+          [speaking]: { translation, audio: true },
+          [language]: {},
+        },
+      )
+      expect(talk.state()).toBe('listening')
+    }
+
+    expect(talk.turns()).toHaveLength(6)
+    expect(talk.rows()).toEqual([
+      'en:Hey, how are you? > es:Hola, ¿cómo estás?',
+      'es:Bien, ¿y tú? > en:Good, and you?',
+      'en:I am good, thanks. > es:Estoy bien, gracias.',
+      'es:Me alegro mucho. > en:I am very glad.',
+      'en:Where are you from? > es:¿De dónde eres?',
+      'es:Soy de Madrid. > en:I am from Madrid.',
+    ])
+    expect(talk.heard()).toEqual(['es', 'en', 'es', 'en', 'es', 'en'])
+    expect(talk.connectCount()).toBe(2)
   })
 
   it('never reads the speaker their own words back', async () => {
-    const talk = await conversation({ source: 'en', target: 'bn' })
-
-    // The route that should be silent generates audio anyway: its instruction
-    // named a language, and the model identified the speech as that language.
-    await speak(
-      talk,
-      { language: 'en', text: 'Hello, I would like to confirm my appointment.' },
-      {
-        bn: {
-          translation: 'হ্যালো, আমি আমার অ্যাপয়েন্টমেন্ট নিশ্চিত করতে চাই।',
-          audio: true,
-        },
-        en: {
-          translation: 'Hello, I would like to confirm my appointment.',
-          audio: true,
-        },
-      },
-    )
-
-    expect(talk.heard()).toEqual(['bn'])
-    expect(talk.rows()).toEqual([
-      'source:Hello, I would like to confirm my appointment.',
-      'translation:হ্যালো, আমি আমার অ্যাপয়েন্টমেন্ট নিশ্চিত করতে চাই।',
-    ])
-
-    talk.finishPlayback()
-    await vi.advanceTimersByTimeAsync(3000)
-
-    await speak(
-      talk,
-      { language: 'bn', text: 'ধন্যবাদ, বৃহস্পতিবার ঠিক আছে।' },
-      {
-        en: { translation: 'Thank you, Thursday works.', audio: true },
-        bn: { translation: 'ধন্যবাদ, বৃহস্পতিবার ঠিক আছে।' },
-      },
-    )
-
-    expect(talk.heard()).toEqual(['bn', 'en'])
-    expect(talk.rows().at(-1)).toBe('translation:Thank you, Thursday works.')
-    await talk.controller.stop()
-  })
-
-  it('tells the routes apart when the API reports no language at all', async () => {
     const talk = await conversation({ source: 'en', target: 'es' })
 
-    // Latin-script speech with no language code: the only thing separating the
-    // two routes is that one of them handed back the speaker's own words.
-    await speak(
+    // The English route mis-identifies the speech and hands it straight back.
+    await exchange(
       talk,
-      { language: 'en', text: 'I would like to confirm my appointment.', reportedAs: null },
+      { language: 'en', text: 'Hey, how are you?' },
       {
-        es: { translation: 'Quisiera confirmar mi cita.', audio: true },
-        en: { translation: 'I would like to confirm my appointment.', audio: true },
+        es: { translation: 'Hola, ¿cómo estás?', audio: true },
+        en: { translation: 'Hey, how are you?', audio: true },
       },
     )
 
     expect(talk.heard()).toEqual(['es'])
+    expect(talk.rows()).toEqual(['en:Hey, how are you? > es:Hola, ¿cómo estás?'])
+  })
+
+  it('names the speaker from which route interpreted when no code is reported', async () => {
+    const talk = await conversation({ source: 'es', target: 'en' })
+
+    await exchange(
+      talk,
+      { language: 'es', text: 'Bien, ¿y tú?', reportedAs: null },
+      {
+        en: { translation: 'Good, and you?', audio: true },
+        es: {},
+      },
+    )
+
+    // Nothing said which language this was, but the route that spoke renders
+    // into English, so the speaker used the other side of the pair.
+    expect(talk.heard()).toEqual(['en'])
+    expect(talk.rows()).toEqual(['es:Bien, ¿y tú? > en:Good, and you?'])
+  })
+
+  it('resolves a third-language label onto a side of the configured pair', async () => {
+    const talk = await conversation({ source: 'bn', target: 'en' })
+
+    await exchange(
+      talk,
+      { language: 'en', text: 'Hey, how are you?', reportedAs: 'vi' },
+      {
+        bn: { translation: 'আপনি কেমন আছেন?', audio: true },
+        en: {},
+      },
+    )
+
+    // There is no Vietnamese speaker in an English/Bengali conversation, and
+    // the route that spoke renders into Bengali, so English was spoken.
     expect(talk.rows()).toEqual([
-      'source:I would like to confirm my appointment.',
-      'translation:Quisiera confirmar mi cita.',
+      'en:Hey, how are you? > bn:আপনি কেমন আছেন?',
     ])
-    await talk.controller.stop()
+    expect(talk.counterpart()).toBe('bn')
+  })
+
+  it('keeps Bengali script over a Latin transliteration of the same speech', async () => {
+    const talk = await conversation({ source: 'bn', target: 'en' })
+    const english = talk.routes.find((route) => route.target === 'en')!
+    const bengali = talk.routes.find((route) => route.target === 'bn')!
+
+    for (const route of [english, bengali]) route.utterance += 1
+    // The two sockets transcribe one utterance differently: one returns the
+    // language's own script, the other a romanisation of it.
+    english.events.onSourceTranscript(
+      { text: 'আপনি কেমন আছেন?', languageCode: 'bn' },
+      true,
+      english.utterance,
+    )
+    bengali.events.onSourceTranscript(
+      { text: 'Apni kemon achen? Bhalo to?', languageCode: 'bn' },
+      true,
+      bengali.utterance,
+    )
+    english.generation += 1
+    english.events.onTranslationTranscript(
+      { text: 'How are you?' },
+      english.generation,
+    )
+    english.events.onAudio(voiceOf('en'), english.generation)
+    english.events.onGenerationComplete(english.generation)
+    for (const route of [english, bengali]) {
+      route.events.onTurnEnd(route.utterance, route.generation)
+    }
+    talk.finishPlayback()
+
+    expect(talk.rows()).toEqual(['bn:আপনি কেমন আছেন? > en:How are you?'])
   })
 
   it('hears the second speaker as soon as the translation has played', async () => {
-    const talk = await conversation({ source: 'es', target: 'en' })
-    const realAudio = encodeCaptureChunk(
-      new Float32Array([0.5, -0.5]),
-      16_000,
-      16_000,
-    )
-    const silence = encodeCaptureChunk(new Float32Array(2), 16_000, 16_000)
+    const talk = await conversation({ source: 'en', target: 'es' })
 
     await speak(
       talk,
-      { language: 'es', text: 'Hola, ¿cómo estás?' },
-      {
-        en: { translation: 'Hello, how are you?', audio: true },
-        es: { translation: 'Hola, ¿cómo estás?' },
-      },
+      { language: 'en', text: 'Hey, how are you?' },
+      { es: { translation: 'Hola, ¿cómo estás?', audio: true }, en: {} },
     )
-    expect(talk.heard()).toEqual(['en'])
-
-    // The translation comes out of the same speakers the microphone is on, so
-    // the room is replaced with silence rather than dropped.
-    expect(talk.hear([0.5, -0.5])).toEqual([silence, silence])
+    expect(talk.state()).toBe('playing')
 
     talk.finishPlayback()
-    await vi.advanceTimersByTimeAsync(PLAYBACK_ECHO_GUARD_MS + 1)
-    expect(talk.hear([0.5, -0.5])).toEqual([realAudio, realAudio])
     expect(talk.state()).toBe('listening')
 
-    await vi.advanceTimersByTimeAsync(3000)
-    await speak(
+    await exchange(
       talk,
-      { language: 'en', text: 'I am well, thank you.' },
+      { language: 'es', text: 'Bien, ¿y tú?' },
+      { en: { translation: 'Good, and you?', audio: true }, es: {} },
+    )
+
+    expect(talk.rows()).toEqual([
+      'en:Hey, how are you? > es:Hola, ¿cómo estás?',
+      'es:Bien, ¿y tú? > en:Good, and you?',
+    ])
+    expect(talk.heard()).toEqual(['es', 'en'])
+  })
+
+  it('learns the other language in auto mode and answers back in it', async () => {
+    const talk = await conversation({ source: 'auto', target: 'en' })
+    expect(talk.targets()).toEqual(['en'])
+    expect(talk.counterpart()).toBeNull()
+
+    await exchange(
+      talk,
+      { language: 'es', text: 'Bien, ¿y tú?' },
+      { en: { translation: 'Good, and you?', audio: true } },
+    )
+
+    expect(talk.counterpart()).toBe('es')
+    expect(talk.targets()).toEqual(['en', 'es'])
+
+    await exchange(
+      talk,
+      { language: 'en', text: 'I am good, thanks.' },
       {
         es: { translation: 'Estoy bien, gracias.', audio: true },
-        en: { translation: 'I am well, thank you.' },
+        en: {},
       },
     )
 
     expect(talk.heard()).toEqual(['en', 'es'])
-    expect(talk.rows().at(-1)).toBe('translation:Estoy bien, gracias.')
-    expect(talk.connectCount()).toBe(2)
-    await talk.controller.stop()
-  })
-
-  it('learns the other language in auto mode and answers back in it', async () => {
-    const talk = await conversation({ source: 'auto', target: 'zh-Hans' })
-    // Nothing is known about the other speaker yet, so there is one route.
-    expect(talk.targets()).toEqual(['zh-Hans'])
-
-    await speak(
-      talk,
-      { language: 'en', text: 'Hello, how are you?' },
-      { 'zh-Hans': { translation: '你好，你好吗？', audio: true } },
-    )
-
     expect(talk.rows()).toEqual([
-      'source:Hello, how are you?',
-      'translation:你好，你好吗？',
+      'es:Bien, ¿y tú? > en:Good, and you?',
+      'en:I am good, thanks. > es:Estoy bien, gracias.',
     ])
-    expect(talk.heard()).toEqual(['zh-Hans'])
-    // English is now the other side of the conversation.
-    expect(talk.targets()).toEqual(['zh-Hans', 'en'])
-
-    talk.finishPlayback()
-    await vi.advanceTimersByTimeAsync(3000)
-
-    await speak(
-      talk,
-      { language: 'zh-Hans', text: '你好，我很好，谢谢。' },
-      {
-        en: { translation: "Hello, I'm doing well, thank you.", audio: true },
-        'zh-Hans': { translation: '你好，我很好，谢谢。' },
-      },
-    )
-
-    expect(talk.rows().at(-1)).toBe("translation:Hello, I'm doing well, thank you.")
-    expect(talk.heard()).toEqual(['zh-Hans', 'en'])
-
-    talk.finishPlayback()
-    await vi.advanceTimersByTimeAsync(3000)
-
-    await speak(
-      talk,
-      { language: 'en', text: 'Can we meet on Thursday?' },
-      {
-        'zh-Hans': { translation: '我们星期四可以见面吗？', audio: true },
-        en: { translation: 'Can we meet on Thursday?' },
-      },
-    )
-
-    expect(talk.heard()).toEqual(['zh-Hans', 'en', 'zh-Hans'])
-    // The pair was settled once and then left alone.
-    expect(talk.connectCount()).toBe(2)
-    await talk.controller.stop()
   })
 
-  it('holds an auto pair through a single mislabelled turn', async () => {
-    const talk = await conversation({ source: 'auto', target: 'zh-Hans' })
-    await speak(
-      talk,
-      { language: 'en', text: 'Hello, how are you?' },
-      { 'zh-Hans': { translation: '你好，你好吗？', audio: true } },
-    )
-    expect(talk.targets()).toEqual(['zh-Hans', 'en'])
-    talk.finishPlayback()
-    await vi.advanceTimersByTimeAsync(3000)
+  it('adopts Spanish after an English-only auto turn and keeps the pair', async () => {
+    const talk = await conversation({ source: 'auto', target: 'en' })
 
-    // One turn reported as French. Acting on it would close the socket the
-    // English speaker is being interpreted on.
-    await speak(
-      talk,
-      { language: 'en', text: 'Can we meet on Thursday?', reportedAs: 'fr' },
-      {
-        'zh-Hans': { translation: '我们星期四可以见面吗？', audio: true },
-        en: { translation: 'Can we meet on Thursday?' },
-      },
-    )
+    // Nothing to interpret and nothing to say: the English speaker is already
+    // speaking the language this session renders into.
+    await exchange(talk, { language: 'en', text: 'Hey, how are you?' }, { en: {} })
+    expect(talk.counterpart()).toBeNull()
+    expect(talk.heard()).toEqual([])
+    expect(talk.rows()).toEqual(['en:Hey, how are you?'])
+    expect(talk.state()).toBe('listening')
 
-    expect(talk.targets()).toEqual(['zh-Hans', 'en'])
+    await exchange(
+      talk,
+      { language: 'es', text: 'Bien, ¿y tú?' },
+      { en: { translation: 'Good, and you?', audio: true } },
+    )
+    expect(talk.counterpart()).toBe('es')
+
+    // A single mislabelled utterance does not move the pair once it is settled.
+    await exchange(
+      talk,
+      { language: 'es', text: 'Muy bien.', reportedAs: 'fr' },
+      { en: { translation: 'Very good.', audio: true }, es: {} },
+    )
+    expect(talk.counterpart()).toBe('es')
+    expect(talk.targets()).toEqual(['en', 'es'])
     expect(talk.connectCount()).toBe(2)
-    talk.finishPlayback()
-    await vi.advanceTimersByTimeAsync(3000)
-
-    // A second utterance agreeing on it is a different matter.
-    await speak(
-      talk,
-      { language: 'fr', text: 'Bonjour, je voudrais confirmer.' },
-      { 'zh-Hans': { translation: '你好，我想确认。', audio: true } },
-    )
-
-    expect(talk.targets()).toEqual(['zh-Hans', 'fr'])
-    await talk.controller.stop()
   })
 
   it('keeps an explicit pair when the model reports a third language', async () => {
-    const talk = await conversation({ source: 'en', target: 'zh-Hans' })
+    const talk = await conversation({ source: 'es', target: 'en' })
 
-    await speak(
+    await exchange(
       talk,
-      { language: 'en', text: 'Hello, how are you?', reportedAs: 'vi' },
-      {
-        'zh-Hans': { translation: '你好，你好吗？', audio: true },
-        en: { translation: 'Hello, how are you?' },
-      },
+      { language: 'es', text: 'Bien, ¿y tú?', reportedAs: 'fr' },
+      { en: { translation: 'Good, and you?', audio: true }, es: {} },
     )
 
-    // A pair the user chose is not replaced by model metadata, and the
-    // utterance is still interpreted rather than dropped.
-    expect(talk.targets()).toEqual(['zh-Hans', 'en'])
-    expect(talk.heard()).toEqual(['zh-Hans'])
-    expect(talk.connectCount()).toBe(2)
-    await talk.controller.stop()
+    expect(talk.counterpart()).toBe('es')
+    expect(talk.targets()).toEqual(['en', 'es'])
+    expect(talk.heard()).toEqual(['en'])
   })
 
   it('keeps interpreting when the return route cannot be opened', async () => {
     const talk = await conversation({
       source: 'auto',
-      target: 'zh-Hans',
-      failTarget: 'en',
+      target: 'en',
+      failTarget: 'es',
     })
 
-    await speak(
+    await exchange(
       talk,
-      { language: 'en', text: 'Hello, how are you?' },
-      { 'zh-Hans': { translation: '你好，你好吗？', audio: true } },
+      { language: 'es', text: 'Bien, ¿y tú?' },
+      { en: { translation: 'Good, and you?', audio: true } },
     )
 
-    expect(talk.state()).toBe('translating')
-    expect(talk.rows()).toEqual([
-      'source:Hello, how are you?',
-      'translation:你好，你好吗？',
-    ])
-    expect(talk.targets()).toEqual(['zh-Hans'])
+    expect(talk.targets()).toEqual(['en'])
+    expect(talk.rows()).toEqual(['es:Bien, ¿y tú? > en:Good, and you?'])
+    expect(talk.state()).toBe('listening')
+  })
+
+  it('silences the microphone while the translation plays and reopens it after', async () => {
+    const talk = await conversation({ source: 'en', target: 'es' })
+    const room = [0.5, -0.5, 0.25, -0.25]
+    const silent = encodeCaptureChunk(new Float32Array(room.length), 16_000, 16_000)
+
+    expect(talk.hear(room).every((chunk) => chunk !== silent)).toBe(true)
+
+    await speak(
+      talk,
+      { language: 'en', text: 'Hey, how are you?' },
+      { es: { translation: 'Hola, ¿cómo estás?', audio: true }, en: {} },
+    )
+    expect(talk.state()).toBe('playing')
+    expect(talk.hear(room).every((chunk) => chunk === silent)).toBe(true)
 
     talk.finishPlayback()
-    await vi.advanceTimersByTimeAsync(3000)
-
-    // The claim on English was released, so the next English turn tries again.
-    await speak(
-      talk,
-      { language: 'en', text: 'Can we meet on Thursday?' },
-      { 'zh-Hans': { translation: '我们星期四可以见面吗？', audio: true } },
-    )
-    expect(talk.targets()).toEqual(['zh-Hans', 'en'])
-    await talk.controller.stop()
-  })
-
-  it('shows both transcripts when the translation is never heard', async () => {
-    const talk = await conversation({ source: 'en', target: 'zh-Hans' })
-
-    // The route that owns this utterance produces text but no audio at all.
-    await speak(
-      talk,
-      { language: 'en', text: 'Hello, how are you?' },
-      {
-        'zh-Hans': { translation: '你好，你好吗？' },
-        en: { translation: 'Hello, how are you?' },
-      },
-    )
-
-    expect(talk.heard()).toEqual([])
-    expect(talk.rows()).toEqual([
-      'source:Hello, how are you?',
-      'translation:你好，你好吗？',
-    ])
-    // Nothing played, so nothing is waiting to finish.
     expect(talk.state()).toBe('listening')
-    await talk.controller.stop()
+    // A brief echo guard, and then the next person is heard normally.
+    expect(talk.hear(room).every((chunk) => chunk === silent)).toBe(true)
+    vi.setSystemTime(Date.now() + PLAYBACK_ECHO_GUARD_MS + 1)
+    expect(talk.hear(room).every((chunk) => chunk !== silent)).toBe(true)
   })
 
-  it('returns to listening when playback never reports that it finished', async () => {
-    const talk = await conversation({ source: 'es', target: 'en' })
-    const silence = encodeCaptureChunk(new Float32Array(2), 16_000, 16_000)
-    const realAudio = encodeCaptureChunk(
-      new Float32Array([0.5, -0.5]),
-      16_000,
-      16_000,
+  it('keeps hearing the room while an utterance is being interpreted', async () => {
+    const talk = await conversation({ source: 'en', target: 'es' })
+    const room = [0.5, -0.5, 0.25, -0.25]
+    const silent = encodeCaptureChunk(new Float32Array(room.length), 16_000, 16_000)
+    const spanish = talk.routes.find((route) => route.target === 'es')!
+
+    spanish.utterance += 1
+    spanish.events.onSourceTranscript(
+      { text: 'Hey, how are you?', languageCode: 'en' },
+      true,
+      spanish.utterance,
     )
 
-    await speak(
-      talk,
-      { language: 'es', text: 'Hola, ¿cómo estás?' },
-      {
-        en: { translation: 'Hello, how are you?', audio: true },
-        es: { translation: 'Hola, ¿cómo estás?' },
-      },
-    )
+    // Nothing is coming out of the speakers between the end of a sentence and
+    // the start of its translation, so there is nothing to echo — and this is
+    // exactly the moment the other person starts talking. Closing the
+    // microphone here is what made the second turn so often never happen.
     expect(talk.state()).toBe('translating')
-    expect(talk.hear([0.5, -0.5])).toEqual([silence, silence])
+    expect(talk.hear(room).every((chunk) => chunk !== silent)).toBe(true)
+  })
 
-    // The completion callback is never delivered. The microphone is silenced
-    // for exactly as long as the session believes audio is playing, so this
-    // cannot be allowed to last.
-    await vi.advanceTimersByTimeAsync(10_000)
+  it('stops saying it is playing when the translation is cut off', async () => {
+    const talk = await conversation({ source: 'en', target: 'es' })
 
+    await speak(
+      talk,
+      { language: 'en', text: 'Hey, how are you?' },
+      { es: { translation: 'Hola, ¿cómo estás?', audio: true }, en: {} },
+    )
+    expect(talk.state()).toBe('playing')
+
+    const spanish = talk.routes.find((route) => route.target === 'es')!
+    spanish.events.onInterrupted(spanish.generation)
     expect(talk.state()).toBe('listening')
-    expect(talk.hear([0.5, -0.5])).toEqual([realAudio, realAudio])
-    await talk.controller.stop()
+    expect(talk.playbackPending()).toBe(false)
   })
 
   it('drops only the interrupted route’s audio', async () => {
-    const talk = await conversation({ source: 'en', target: 'zh-Hans' })
-    const chinese = talk.routes.find((route) => route.target === 'zh-Hans')!
+    const talk = await conversation({ source: 'en', target: 'es' })
+
+    await speak(
+      talk,
+      { language: 'en', text: 'Hey, how are you?' },
+      { es: { translation: 'Hola, ¿cómo estás?', audio: true }, en: {} },
+    )
     const english = talk.routes.find((route) => route.target === 'en')!
+    english.events.onInterrupted(english.generation)
 
-    chinese.events.onInterimTranscript({ text: 'Hello', languageCode: 'en' })
-    chinese.events.onAudio(voiceOf('zh-Hans'))
-    expect(talk.state()).toBe('translating')
-
-    // The route that is not being heard being cut off says nothing about the
-    // translation that is currently playing.
-    english.events.onInterrupted()
-    english.events.onTurnEnd()
-    expect(talk.state()).toBe('translating')
-
-    chinese.events.onInterrupted()
-    expect(talk.state()).toBe('listening')
-    await talk.controller.stop()
-  })
-
-  it('takes the floor back from a route that turns out to be parroting', async () => {
-    const talk = await conversation({ source: 'en', target: 'zh-Hans' })
-    const chinese = talk.routes.find((route) => route.target === 'zh-Hans')!
-    const english = talk.routes.find((route) => route.target === 'en')!
-
-    // The English speaker is misidentified as Chinese, so the route that should
-    // be silent is the one the language evidence lets in first.
-    english.events.onInterimTranscript({
-      text: 'Hello, how',
-      languageCode: 'zh-Hans',
-    })
-    english.events.onAudio(voiceOf('en'))
-    chinese.events.onInterimTranscript({
-      text: 'Hello, how',
-      languageCode: 'zh-Hans',
-    })
-    chinese.events.onAudio(voiceOf('zh-Hans'))
-    expect(talk.heard()).toEqual(['en'])
-
-    // What it produced is the speaker's own words, which settles it.
-    english.events.onSourceTranscript({
-      text: 'Hello, how are you?',
-      languageCode: 'zh-Hans',
-    })
-    english.events.onTranslationTranscript({ text: 'Hello, how are you?' })
-    chinese.events.onSourceTranscript({
-      text: 'Hello, how are you?',
-      languageCode: 'zh-Hans',
-    })
-    chinese.events.onTranslationTranscript({ text: '你好，你好吗？' })
-
-    // The audio the other route was holding is released, and the parrot stops.
-    expect(talk.heard()).toEqual(['en', 'zh-Hans'])
-    expect(talk.rows()).toEqual([
-      'source:Hello, how are you?',
-      'translation:你好，你好吗？',
-    ])
-    await talk.controller.stop()
+    // The English route was never being heard, so nothing it says can stop the
+    // translation that is playing.
+    expect(talk.state()).toBe('playing')
+    expect(talk.playbackPending()).toBe(true)
   })
 
   it('never lets a second route speak the utterance after the first', async () => {
-    const talk = await conversation({ source: 'en', target: 'zh-Hans' })
-    const chinese = talk.routes.find((route) => route.target === 'zh-Hans')!
+    const talk = await conversation({ source: 'en', target: 'es' })
+    const spanish = talk.routes.find((route) => route.target === 'es')!
     const english = talk.routes.find((route) => route.target === 'en')!
 
-    // Both routes produce a genuine translation of the same speech and neither
-    // reports a language. Only one of them may be heard.
-    chinese.events.onAudio(voiceOf('zh-Hans'))
-    english.events.onAudio(voiceOf('en'))
-    chinese.events.onSourceTranscript({ text: 'Bonjour tout le monde.' })
-    chinese.events.onTranslationTranscript({ text: '大家好。' })
-    english.events.onSourceTranscript({ text: 'Bonjour tout le monde.' })
-    english.events.onTranslationTranscript({ text: 'Hello everyone.' })
+    spanish.utterance += 1
+    spanish.generation += 1
+    english.generation += 1
+    spanish.events.onSourceTranscript(
+      { text: 'Hey, how are you?', languageCode: 'en' },
+      true,
+      spanish.utterance,
+    )
+    spanish.events.onAudio(voiceOf('es'), spanish.generation)
+    english.events.onAudio(voiceOf('en'), english.generation)
+    english.events.onAudio(voiceOf('en'), english.generation)
 
-    expect(talk.heard()).toEqual(['zh-Hans'])
-
-    // Including once both routes have finished with the utterance.
-    chinese.events.onTurnEnd()
-    english.events.onTurnEnd()
-    expect(talk.heard()).toEqual(['zh-Hans'])
-    await talk.controller.stop()
+    expect(talk.heard()).toEqual(['es'])
   })
 
   it('keeps one row for a sentence that arrives in fragments', async () => {
-    const talk = await conversation({ source: 'en', target: 'zh-Hans' })
-    const chinese = talk.routes.find((route) => route.target === 'zh-Hans')!
+    const talk = await conversation({ source: 'en', target: 'es' })
+    const spanish = talk.routes.find((route) => route.target === 'es')!
 
-    for (const text of ['I need', 'I need to make', 'I need to make an appointment']) {
-      chinese.events.onInterimTranscript({ text, languageCode: 'en' })
-      expect(talk.rows()).toEqual([])
-      expect(talk.controller.getSnapshot().interimTranscript?.text).toBe(text)
+    spanish.utterance += 1
+    for (const text of ['Hey', 'Hey, how', 'Hey, how are', 'Hey, how are you?']) {
+      spanish.events.onSourceTranscript(
+        { text, languageCode: 'en' },
+        false,
+        spanish.utterance,
+      )
     }
+    spanish.events.onTurnEnd(spanish.utterance, spanish.generation)
+    const english = talk.routes.find((route) => route.target === 'en')!
+    english.events.onTurnEnd(english.utterance, english.generation)
 
-    chinese.events.onSourceTranscript({
-      text: 'I need to make an appointment.',
-      languageCode: 'en',
-    })
-
-    expect(talk.rows()).toEqual(['source:I need to make an appointment.'])
-    expect(talk.controller.getSnapshot().interimTranscript).toBeNull()
-    await talk.controller.stop()
+    expect(talk.rows()).toEqual(['en:Hey, how are you?'])
   })
 
   it('keeps one row when both routes report the same speech', async () => {
-    const talk = await conversation({ source: 'en', target: 'zh-Hans' })
+    const talk = await conversation({ source: 'en', target: 'es' })
 
-    await speak(
+    await exchange(
       talk,
-      { language: 'en', text: 'Hello, how are you?' },
+      { language: 'en', text: 'Hey, how are you?' },
       {
-        'zh-Hans': { translation: '你好，你好吗？', audio: true },
-        // Same speech, transcribed slightly differently by the other socket.
-        en: { translation: 'Hello how are you' },
+        es: { translation: 'Hola, ¿cómo estás?', audio: true },
+        // The English route hears it too and says so, but has nothing to add.
+        en: {},
       },
     )
 
-    expect(talk.rows()).toEqual([
-      'source:Hello, how are you?',
-      'translation:你好，你好吗？',
-    ])
-    await talk.controller.stop()
+    expect(talk.rows()).toEqual(['en:Hey, how are you? > es:Hola, ¿cómo estás?'])
+  })
+
+  it('shows the live caption while somebody is speaking and drops it after', async () => {
+    const talk = await conversation({ source: 'en', target: 'es' })
+    const spanish = talk.routes.find((route) => route.target === 'es')!
+
+    spanish.utterance += 1
+    spanish.events.onInterimTranscript(
+      { text: 'Hey, how', languageCode: 'en' },
+      spanish.utterance,
+    )
+    expect(talk.controller.getSnapshot().interimTranscript?.text).toBe('Hey, how')
+
+    spanish.events.onSourceTranscript(
+      { text: 'Hey, how are you?', languageCode: 'en' },
+      true,
+      spanish.utterance,
+    )
+    expect(talk.controller.getSnapshot().interimTranscript).toBeNull()
+    expect(talk.rows()).toEqual(['en:Hey, how are you?'])
   })
 
   it('starts clean after a stop in the middle of a translation', async () => {
-    const talk = await conversation({ source: 'en', target: 'zh-Hans' })
+    const talk = await conversation({ source: 'en', target: 'es' })
 
     await speak(
       talk,
-      { language: 'en', text: 'Hello, how are you?' },
-      { 'zh-Hans': { translation: '你好，你好吗？', audio: true } },
+      { language: 'en', text: 'Hey, how are you?' },
+      { es: { translation: 'Hola, ¿cómo estás?', audio: true }, en: {} },
     )
-    expect(talk.state()).toBe('translating')
+    expect(talk.state()).toBe('playing')
 
     await talk.controller.stop()
     expect(talk.state()).toBe('stopped')
+    expect(talk.playbackPending()).toBe(false)
     expect(talk.routes.every((route) => route.closed)).toBe(true)
 
-    await talk.controller.start('en', 'zh-Hans')
+    await talk.controller.start('en', 'es')
     expect(talk.state()).toBe('listening')
-    expect(talk.targets()).toEqual(['zh-Hans', 'en'])
+    expect(talk.controller.getSnapshot().interimTranscript).toBeNull()
+  })
 
-    // The suppression the interrupted playback left behind is gone.
-    const realAudio = encodeCaptureChunk(
-      new Float32Array([0.5, -0.5]),
-      16_000,
-      16_000,
+  it('forgets an adopted auto pair and all route runs across stop/start', async () => {
+    const talk = await conversation({ source: 'auto', target: 'en' })
+
+    await exchange(
+      talk,
+      { language: 'es', text: 'Bien, ¿y tú?' },
+      { en: { translation: 'Good, and you?', audio: true } },
     )
-    expect(talk.hear([0.5, -0.5])).toEqual([realAudio, realAudio])
+    expect(talk.counterpart()).toBe('es')
+    expect(talk.targets()).toEqual(['en', 'es'])
+
     await talk.controller.stop()
+    expect(talk.counterpart()).toBeNull()
+    expect(talk.routes.every((route) => route.closed)).toBe(true)
+
+    await talk.controller.start('auto', 'en')
+    expect(talk.targets()).toEqual(['en'])
+    expect(talk.counterpart()).toBeNull()
+
+    await exchange(
+      talk,
+      { language: 'en', text: 'Hello again.' },
+      { en: {} },
+    )
+    await vi.advanceTimersByTimeAsync(UTTERANCE_JOIN_MS)
+    expect(talk.turns().at(-1)).toMatchObject({
+      sourceLanguage: 'en',
+      sourceText: 'Hello again.',
+      translatedText: '',
+      status: 'complete',
+    })
+  })
+
+  it('clears the conversation without touching the session', async () => {
+    const talk = await conversation({ source: 'en', target: 'es' })
+
+    await exchange(
+      talk,
+      { language: 'en', text: 'Hey, how are you?' },
+      { es: { translation: 'Hola, ¿cómo estás?', audio: true }, en: {} },
+    )
+    expect(talk.turns()).toHaveLength(1)
+
+    talk.controller.clearTranscript()
+    expect(talk.turns()).toEqual([])
+    expect(talk.state()).toBe('listening')
   })
 })

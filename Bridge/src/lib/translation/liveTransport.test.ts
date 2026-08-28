@@ -9,13 +9,12 @@ vi.mock('@google/genai', () => ({
     live = { connect: sdk.connect }
   },
   Modality: { AUDIO: 'AUDIO' },
-  EndSensitivity: { END_SENSITIVITY_HIGH: 'END_SENSITIVITY_HIGH' },
+  EndSensitivity: { END_SENSITIVITY_LOW: 'END_SENSITIVITY_LOW' },
 }))
 
 import {
   END_OF_SPEECH_SILENCE_MS,
   TRANSCRIPT_IDLE_FINALIZE_MS,
-  TRANSCRIPT_SETTLE_MS,
 } from './config'
 import { connectLiveTransport, type LiveTransportEvents } from './liveTransport'
 
@@ -35,11 +34,14 @@ class FakeWebSocket {
 
 function events(): { [K in keyof LiveTransportEvents]: ReturnType<typeof vi.fn> } {
   return {
+    onSpeechStart: vi.fn(),
+    onSpeechEnd: vi.fn(),
     onAudio: vi.fn(),
     onSourceTranscript: vi.fn(),
     onTranslationTranscript: vi.fn(),
     onInterimTranscript: vi.fn(),
     onInterrupted: vi.fn(),
+    onGenerationComplete: vi.fn(),
     onTurnEnd: vi.fn(),
     onClosed: vi.fn(),
     onError: vi.fn(),
@@ -75,6 +77,7 @@ async function openTransport({
     sendRealtimeInput,
     closeSession,
     send: (serverContent: Record<string, unknown>) => onmessage({ serverContent }),
+    sendMessage: (message: Record<string, unknown>) => onmessage(message),
   }
 }
 
@@ -166,16 +169,16 @@ describe('connectLiveTransport endpointing', () => {
     globalThis.WebSocket = NativeWebSocket
   })
 
-  it('leaves end-of-speech sensitivity at the noise-tolerant default', async () => {
+  it('uses pause-tolerant end-of-speech detection', async () => {
     await openTransport()
 
-    // The low setting ends speech less often, which is how steady room noise
-    // keeps a turn open indefinitely. Pause tolerance comes from the silence
-    // duration instead.
+    // The real traces split speech on ordinary pauses with HIGH sensitivity.
+    // LOW is the API control that ends speech less readily; the explicit
+    // silence duration still bounds the turn.
     expect(sdk.connect.mock.calls[0]?.[0].config).toMatchObject({
       realtimeInputConfig: {
         automaticActivityDetection: {
-          endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+          endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
           silenceDurationMs: END_OF_SPEECH_SILENCE_MS,
         },
       },
@@ -197,70 +200,85 @@ describe('connectLiveTransport endpointing', () => {
     expect(listeners.onTranslationTranscript).not.toHaveBeenCalled()
   })
 
-  it('finalises a turn without waiting for turnComplete', async () => {
+  it('reports transcription the moment it arrives', async () => {
     const { listeners, send } = await openTransport()
 
-    // `turnComplete` only arrives once the model has waited out its own
-    // playback, several seconds after the speaker stopped. Nothing here may
-    // depend on it.
+    // No settle window: the coordinator merges fragments into the one turn it
+    // has open, so nothing here has to be delayed to keep a sentence together.
     send({
-      inputTranscription: {
-        text: 'Hola, necesito una cita para el jueves.',
-        languageCode: 'es',
-      },
+      inputTranscription: { text: 'Bien, ¿y tú?', languageCode: 'es' },
+      outputTranscription: { text: 'Fine, and you?' },
+      modelTurn: audioPart('AQI='),
     })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_SETTLE_MS)
 
     expect(listeners.onSourceTranscript).toHaveBeenCalledOnce()
-    expect(listeners.onSourceTranscript.mock.calls[0]?.[0]).toMatchObject({
-      text: 'Hola, necesito una cita para el jueves.',
-      languageCode: 'es',
-    })
-
-    send({
-      outputTranscription: { text: 'Hello, I need an appointment for Thursday.' },
-      modelTurn: audioPart('AQI='),
-      generationComplete: true,
-    })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_SETTLE_MS)
-
+    expect(listeners.onSourceTranscript.mock.calls[0]).toEqual([
+      expect.objectContaining({ text: 'Bien, ¿y tú?', languageCode: 'es' }),
+      true,
+      1,
+    ])
     expect(listeners.onTranslationTranscript).toHaveBeenCalledOnce()
-    expect(listeners.onTranslationTranscript.mock.calls[0]?.[0]).toMatchObject({
-      text: 'Hello, I need an appointment for Thursday.',
-    })
     expect(listeners.onAudio).toHaveBeenCalledOnce()
   })
 
-  it('keeps one spoken sentence in one row', async () => {
+  it('marks a transcription the API says is complete', async () => {
     const { listeners, send } = await openTransport()
 
-    send({ inputTranscription: { text: 'I need', languageCode: 'en-US' } })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_SETTLE_MS - 100)
     send({
-      inputTranscription: { text: 'to make an appointment', languageCode: 'en-US' },
+      inputTranscription: {
+        text: 'Hola, necesito una cita.',
+        languageCode: 'es',
+        finished: true,
+      },
     })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_SETTLE_MS)
 
-    expect(listeners.onSourceTranscript).toHaveBeenCalledOnce()
-    expect(listeners.onSourceTranscript.mock.calls[0]?.[0]).toMatchObject({
+    expect(listeners.onSourceTranscript.mock.calls[0]?.[1]).toBe(true)
+  })
+
+  it('reports generated-audio completion without waiting for turnComplete', async () => {
+    const { listeners, send } = await openTransport()
+
+    send({ generationComplete: true })
+
+    expect(listeners.onGenerationComplete).toHaveBeenCalledOnce()
+    expect(listeners.onTurnEnd).not.toHaveBeenCalled()
+  })
+
+  it('accumulates one spoken sentence across fragments', async () => {
+    const { listeners, send } = await openTransport()
+
+    send({
+      inputTranscription: {
+        text: 'I need',
+        languageCode: 'en-US',
+        finished: false,
+      },
+    })
+    send({
+      inputTranscription: {
+        text: 'to make an appointment',
+        languageCode: 'en-US',
+        finished: true,
+      },
+    })
+
+    expect(listeners.onSourceTranscript).toHaveBeenCalledTimes(2)
+    expect(listeners.onSourceTranscript.mock.calls.at(-1)?.[0]).toMatchObject({
       text: 'I need to make an appointment',
     })
   })
 
-  it('waits for translation text that arrives after generation completed', async () => {
+  it('reports translation text that arrives after generation completed', async () => {
     const { listeners, send } = await openTransport()
 
     send({ inputTranscription: { text: 'Guten Morgen', languageCode: 'de' } })
     send({ generationComplete: true })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_SETTLE_MS)
-    expect(listeners.onSourceTranscript).toHaveBeenCalledOnce()
     expect(listeners.onTranslationTranscript).not.toHaveBeenCalled()
 
     // Output transcription is unordered against the rest of the turn, so a
-    // late fragment must still reach the transcript rather than waiting for
+    // late fragment must still be reported rather than waiting for
     // `turnComplete` seconds later.
     send({ outputTranscription: { text: 'Good morning' } })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_SETTLE_MS)
 
     expect(listeners.onTranslationTranscript).toHaveBeenCalledOnce()
     expect(listeners.onTranslationTranscript.mock.calls[0]?.[0]).toMatchObject({
@@ -268,43 +286,258 @@ describe('connectLiveTransport endpointing', () => {
     })
   })
 
-  it('commits what was heard when the API never closes the turn', async () => {
+  it('releases the route when the API never closes the turn', async () => {
     const { listeners, send } = await openTransport()
 
     send({
       inputTranscription: { text: 'Bonjour', languageCode: 'fr' },
       outputTranscription: { text: 'Good morning' },
     })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_IDLE_FINALIZE_MS)
+    expect(listeners.onTurnEnd).not.toHaveBeenCalled()
 
-    expect(listeners.onSourceTranscript).toHaveBeenCalledOnce()
-    expect(listeners.onTranslationTranscript).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(TRANSCRIPT_IDLE_FINALIZE_MS)
+    expect(listeners.onTurnEnd).toHaveBeenCalledOnce()
   })
 
-  it('finalises around continuing background activity', async () => {
+  it('holds a turn open across continuing background activity', async () => {
     const { listeners, send } = await openTransport()
 
-    // Room noise keeps producing interim activity around the sentence. Only the
-    // semantic signals may drive finalisation.
     send({ interimInputTranscription: { text: 'necesito', languageCode: 'es' } })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_IDLE_FINALIZE_MS * 2)
-    expect(listeners.onSourceTranscript).not.toHaveBeenCalled()
-
-    send({ interimInputTranscription: { text: 'necesito una cita', languageCode: 'es' } })
+    send({
+      interimInputTranscription: { text: 'necesito una cita', languageCode: 'es' },
+    })
     send({
       inputTranscription: { text: 'Necesito una cita.', languageCode: 'es' },
       outputTranscription: { text: 'I need an appointment.' },
       generationComplete: true,
     })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_SETTLE_MS)
+    expect(listeners.onTurnEnd).not.toHaveBeenCalled()
 
-    expect(listeners.onSourceTranscript).toHaveBeenCalledOnce()
-    expect(listeners.onTranslationTranscript).toHaveBeenCalledOnce()
-
-    // The row is already committed by the time the model gets round to it.
     send({ turnComplete: true })
-    expect(listeners.onSourceTranscript).toHaveBeenCalledOnce()
-    expect(listeners.onTranslationTranscript).toHaveBeenCalledOnce()
+    expect(listeners.onTurnEnd).toHaveBeenCalledOnce()
+  })
+
+  it('never runs two things a person said into one transcription', async () => {
+    const { listeners, send } = await openTransport()
+
+    // The reported failure: the server delays `turnComplete` while it waits out
+    // its own playback estimate, so the reply is spoken long before it arrives.
+    // The accumulator has to reset at the end of the *utterance*, not the turn.
+    send({
+      inputTranscription: {
+        text: 'Hey, how are you?',
+        languageCode: 'en',
+        finished: true,
+      },
+    })
+    send({
+      inputTranscription: {
+        text: 'Hola, ¿cómo estás?',
+        languageCode: 'es',
+        finished: true,
+      },
+    })
+
+    const calls = listeners.onSourceTranscript.mock.calls
+    expect(calls[0][0].text).toBe('Hey, how are you?')
+    expect(calls[1][0].text).toBe('Hola, ¿cómo estás?')
+    // ...and they are marked as different utterances.
+    expect(calls[0][2]).toBe(1)
+    expect(calls[1][2]).toBe(2)
+  })
+
+  it('uses server voice activity as the human boundary even when final text is late', async () => {
+    const { listeners, send, sendMessage } = await openTransport()
+
+    sendMessage({
+      voiceActivity: { voiceActivityType: 'ACTIVITY_START' },
+    })
+    send({
+      inputTranscription: {
+        text: 'Hello, how',
+        languageCode: 'en',
+        finished: false,
+      },
+    })
+    sendMessage({
+      voiceActivity: { voiceActivityType: 'ACTIVITY_END' },
+    })
+    // Input transcription is independent of model output and may finalize after
+    // VAD. It still belongs to utterance 1.
+    send({
+      inputTranscription: {
+        text: 'Hello, how are you?',
+        languageCode: 'en',
+        finished: true,
+      },
+    })
+
+    sendMessage({
+      voiceActivity: { voiceActivityType: 'ACTIVITY_START' },
+    })
+    // The server's delayed completion for Turn 1 must not close Turn 2.
+    send({ turnComplete: true })
+    send({
+      inputTranscription: {
+        text: '¿Cómo estás?',
+        languageCode: 'es',
+        finished: true,
+      },
+    })
+    send({ turnComplete: true })
+
+    expect(listeners.onSpeechStart.mock.calls.map(([id]) => id)).toEqual([1, 2])
+    expect(listeners.onSpeechEnd.mock.calls.map(([id]) => id)).toEqual([1, 2])
+    expect(
+      listeners.onSourceTranscript.mock.calls.map(([value, , id]) => [
+        id,
+        value.text,
+      ]),
+    ).toEqual([
+      [1, 'Hello, how'],
+      [1, 'Hello, how are you?'],
+      [2, '¿Cómo estás?'],
+    ])
+    expect(listeners.onTurnEnd).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps counting utterances after the server stops sending voice activity', async () => {
+    const { listeners, send, sendMessage } = await openTransport()
+
+    // `voiceActivity` is a newer Live feature and is not guaranteed for the
+    // whole of a session. Deferring to signals that had stopped arriving froze
+    // the utterance id at 1, every later transcription was dropped downstream
+    // as already committed, and the conversation ended after one exchange.
+    sendMessage({ voiceActivity: { voiceActivityType: 'ACTIVITY_START' } })
+    send({
+      inputTranscription: {
+        text: 'Hey, how are you?',
+        languageCode: 'en',
+        finished: true,
+      },
+    })
+    sendMessage({ voiceActivity: { voiceActivityType: 'ACTIVITY_END' } })
+    send({ turnComplete: true })
+
+    // No activity signal this time; only the transcription.
+    send({
+      inputTranscription: {
+        text: 'Bien, ¿y tú?',
+        languageCode: 'es',
+        finished: true,
+      },
+    })
+    send({ turnComplete: true })
+
+    expect(
+      listeners.onSourceTranscript.mock.calls.map(([value, , id]) => [
+        id,
+        value.text,
+      ]),
+    ).toEqual([
+      [1, 'Hey, how are you?'],
+      [2, 'Bien, ¿y tú?'],
+    ])
+    expect(listeners.onTurnEnd).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not report a turn end for an utterance that was already over', async () => {
+    const { listeners, send } = await openTransport()
+
+    send({
+      inputTranscription: {
+        text: 'Hey, how are you?',
+        languageCode: 'en',
+        finished: true,
+      },
+    })
+    send({ turnComplete: true })
+    expect(listeners.onTurnEnd).toHaveBeenCalledTimes(1)
+
+    // The first message of the next utterance used to mark the route's turn
+    // open before asking whether it already was, so this reported a second end
+    // for utterance 1 and left the route expecting a server `turnComplete` that
+    // had already been consumed — swallowing the real one below.
+    send({
+      inputTranscription: {
+        text: 'Bien, ¿y tú?',
+        languageCode: 'es',
+        finished: true,
+      },
+    })
+    expect(listeners.onTurnEnd).toHaveBeenCalledTimes(1)
+
+    send({ turnComplete: true })
+    expect(listeners.onTurnEnd.mock.calls.map(([id]) => id)).toEqual([1, 2])
+  })
+
+  it('closes the utterance at generationComplete when nothing is marked finished', async () => {
+    const { listeners, send } = await openTransport()
+
+    // Some responses never set `finished`. The model answering what it heard is
+    // still a boundary: whatever is transcribed next is the next utterance.
+    send({
+      inputTranscription: {
+        text: 'Hey, how are you?',
+        languageCode: 'en',
+        finished: false,
+      },
+    })
+    send({ generationComplete: true })
+    send({ inputTranscription: { text: 'Hola, ¿cómo estás?', languageCode: 'es' } })
+
+    const calls = listeners.onSourceTranscript.mock.calls
+    expect(calls.at(-1)?.[0].text).toBe('Hola, ¿cómo estás?')
+    expect(calls.at(-1)?.[2]).toBe(2)
+  })
+
+  it('separates one model response from the next', async () => {
+    const { listeners, send } = await openTransport()
+
+    send({
+      inputTranscription: { text: 'Hello', languageCode: 'en', finished: true },
+      outputTranscription: { text: 'Hola' },
+    })
+    send({ generationComplete: true })
+    send({
+      inputTranscription: { text: 'Hola', languageCode: 'es', finished: true },
+      outputTranscription: { text: 'Hi there' },
+    })
+
+    const calls = listeners.onTranslationTranscript.mock.calls
+    expect(calls[0][0].text).toBe('Hola')
+    expect(calls[0][1]).toBe(1)
+    expect(calls.at(-1)?.[0].text).toBe('Hi there')
+    expect(calls.at(-1)?.[1]).toBe(2)
+  })
+
+  it('keeps fragments of one utterance together', async () => {
+    const { listeners, send } = await openTransport()
+
+    send({
+      inputTranscription: {
+        text: 'Hey,',
+        languageCode: 'en',
+        finished: false,
+      },
+    })
+    send({ inputTranscription: { text: 'how are you?', languageCode: 'en', finished: true } })
+
+    const calls = listeners.onSourceTranscript.mock.calls
+    expect(calls.at(-1)?.[0].text).toBe('Hey, how are you?')
+    expect(calls.every((call) => call[2] === 1)).toBe(true)
+  })
+
+  it('starts a fresh accumulation after the turn ends', async () => {
+    const { listeners, send } = await openTransport()
+
+    send({ inputTranscription: { text: 'Hola', languageCode: 'es' } })
+    send({ turnComplete: true })
+    send({ inputTranscription: { text: 'Adiós', languageCode: 'es' } })
+
+    expect(listeners.onSourceTranscript.mock.calls.at(-1)?.[0]).toMatchObject({
+      text: 'Adiós',
+    })
   })
 
   it('publishes the text of an interrupted turn', async () => {
@@ -319,7 +552,7 @@ describe('connectLiveTransport endpointing', () => {
     expect(listeners.onInterrupted).toHaveBeenCalledOnce()
     expect(listeners.onSourceTranscript).toHaveBeenCalledOnce()
     expect(listeners.onTranslationTranscript).toHaveBeenCalledOnce()
-    // The utterance is over, so the session may re-arbitrate the next one.
+    // The utterance is over, so this route may join the next one.
     expect(listeners.onTurnEnd).toHaveBeenCalledOnce()
   })
 
@@ -327,32 +560,35 @@ describe('connectLiveTransport endpointing', () => {
     const { listeners, send } = await openTransport()
 
     send({
-      inputTranscription: { text: '你好，', languageCode: 'vi' },
+      inputTranscription: {
+        text: '你好，',
+        languageCode: 'vi',
+        finished: false,
+      },
       outputTranscription: { text: 'Hello,' },
     })
     send({
       inputTranscription: {
         text: '我想确认明天的预约。',
         languageCode: 'vi',
+        finished: true,
       },
       outputTranscription: {
         text: 'I want to confirm tomorrow’s appointment.',
       },
       generationComplete: true,
     })
-    await vi.advanceTimersByTimeAsync(TRANSCRIPT_SETTLE_MS)
 
-    expect(listeners.onSourceTranscript).toHaveBeenCalledOnce()
-    expect(listeners.onSourceTranscript.mock.calls[0]?.[0]).toMatchObject({
+    expect(listeners.onSourceTranscript.mock.calls.at(-1)?.[0]).toMatchObject({
       text: '你好，我想确认明天的预约。',
       languageCode: 'zh-Hans',
     })
-    expect(listeners.onTranslationTranscript.mock.calls[0]?.[0]).toMatchObject({
+    expect(listeners.onTranslationTranscript.mock.calls.at(-1)?.[0]).toMatchObject({
       text: 'Hello, I want to confirm tomorrow’s appointment.',
     })
   })
 
-  it('stops the settle windows when the caller closes the transport', async () => {
+  it('stops the idle window when the caller closes the transport', async () => {
     const { listeners, send, transport, sendRealtimeInput, closeSession } =
       await openTransport()
 
@@ -360,7 +596,7 @@ describe('connectLiveTransport endpointing', () => {
     transport.close()
     await vi.advanceTimersByTimeAsync(TRANSCRIPT_IDLE_FINALIZE_MS * 2)
 
-    expect(listeners.onSourceTranscript).not.toHaveBeenCalled()
+    expect(listeners.onTurnEnd).not.toHaveBeenCalled()
     expect(sendRealtimeInput).toHaveBeenCalledWith({ audioStreamEnd: true })
     expect(closeSession).toHaveBeenCalledOnce()
   })

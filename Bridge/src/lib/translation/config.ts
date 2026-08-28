@@ -16,22 +16,13 @@ export const DEFAULT_LIVE_MODEL = 'gemini-3.5-live-translate-preview'
 /**
  * API version used for the browser's Live WebSocket connection.
  *
- * VERIFY THIS ON THE FIRST REAL RUN — the sources disagree:
- *
- * - The Live Translate documentation says ephemeral tokens must use the
- *   `v1beta` endpoint, and that is also the version the Issue #1 server mints
- *   tokens on (`GEMINI_API_BASE_URL` defaults to `.../v1beta`). A token is
- *   redeemed on the version that issued it, so `v1beta` is the consistent
- *   choice and is what this constant selects.
- * - `@google/genai` 2.19.0 still prints "The SDK's ephemeral token support is
- *   in v1alpha only" when the version is anything else. That warning is only a
- *   `console.warn`: the SDK switches to the constrained ephemeral method and
- *   the `access_token` query parameter purely on the `auth_tokens/` prefix of
- *   the key, independently of this version.
- *
- * If the first live session fails during the WebSocket handshake, flip this to
- * `'v1alpha'` and confirm which one the account actually accepts. Changing it
- * is a one-line switch precisely so that test is cheap.
+ * Current Gemini documentation requires ephemeral tokens to use the `v1beta`
+ * constrained endpoint, and the server mints them through the same version.
+ * `@google/genai` 2.19.0 still prints an older “v1alpha only” warning, but its
+ * runtime correctly selects `BidiGenerateContentConstrained` and the
+ * `access_token` query parameter from the `auth_tokens/` prefix. Changing this
+ * to v1alpha would silence that stale warning while contradicting the current
+ * service contract.
  */
 export const LIVE_API_VERSION = 'v1beta'
 
@@ -77,67 +68,106 @@ export const END_OF_SPEECH_SILENCE_MS = 700
 /**
  * How readily automatic activity detection decides speech has ended.
  *
- * This is the documented Gemini Live default, restated because the alternative
- * is tempting and wrong for this product: `END_SENSITIVITY_LOW` "ends speech
- * less often", so in a room with steady background noise the turn can stay
- * open indefinitely and nothing is ever transcribed. Tolerance for pauses
- * comes from `END_OF_SPEECH_SILENCE_MS` instead.
+ * The browser traces show `END_SENSITIVITY_HIGH` breaking ordinary Spanish and
+ * Bengali speech into new model turns after short mid-sentence pauses. Gemini's
+ * documented meaning of `END_SENSITIVITY_LOW` is exactly what the interpreter
+ * needs here: end speech less readily while still retaining the bounded
+ * `silenceDurationMs` fallback above.
  *
  * The ephemeral token carries the session setup it constrains, so this value
  * has to match on both sides: the token request in `api/live-token.ts` and the
  * browser's Live config in `liveTransport.ts`.
  */
 export const END_OF_SPEECH_SENSITIVITY =
-  'END_SENSITIVITY_HIGH' as EndSensitivity
+  'END_SENSITIVITY_LOW' as EndSensitivity
 
 /**
- * Grace period that lets the trailing pieces of one utterance's transcription
- * join the row they belong to.
+ * How long a source-only server turn remains joinable by another finalized ASR
+ * segment from the same human thought.
  *
- * Input transcription arrives as a complete utterance and output transcription
- * streams word by word, but neither is ordered against `serverContent`, so a
- * fragment can land just after the signal that the turn is over. Committing a
- * transcript row this long after the last fragment keeps one spoken sentence in
- * one row without waiting on the model.
+ * Gemini marked the real trace fragments `finished=true` roughly 0.6–1.0 s
+ * apart even though the speaker had not finished. `finished` ends that ASR
+ * segment; it is not by itself a product-level conversational boundary. This
+ * window is only used when no translated audio owns the turn (audio playback
+ * already keeps translated turns open while trailing segments arrive).
  */
-export const TRANSCRIPT_SETTLE_MS = 300
+export const UTTERANCE_JOIN_MS = 1200
 
 /**
- * Fallback that commits already-transcribed text when the API stops talking
- * about the turn without ever closing it.
+ * How long a route may go without saying anything about the utterance it is
+ * reporting before it is released from it.
  *
- * This never truncates speech and never stops the microphone: it only publishes
- * text the API has already sent, so the worst case is a row that is committed
- * slightly early and continues in the next row. It exists because
- * `turnComplete` is not guaranteed to arrive — an interrupted turn skips
+ * `turnComplete` is not guaranteed — an interrupted turn skips
  * `generationComplete`, and a session that goes away mid-utterance sends
- * neither.
+ * neither — and a route that never reports the end of an utterance would still
+ * be counted as busy with it while the next person is speaking. Nothing is
+ * truncated or discarded when this fires; the route simply rejoins the
+ * conversation.
  */
-export const TRANSCRIPT_IDLE_FINALIZE_MS = 2000
-
-/** Prevent translated speaker audio from being captured and translated back. */
-export const PLAYBACK_ECHO_GUARD_MS = 350
-
-/**
- * Extra time allowed past the end of the scheduled audio before the session
- * stops believing playback is still running.
- *
- * The microphone is fed silence while the translation is audible, so a playback
- * completion that never arrives would leave the session deaf and permanently
- * "playing". The playback scheduler reports how much audio is still queued on
- * its own clock, so the watchdog only has to cover the gap between that clock
- * running out and the callback being delivered.
- */
-export const PLAYBACK_WATCHDOG_SLACK_MS = 1500
+export const TRANSCRIPT_IDLE_FINALIZE_MS = 1200
 
 /**
- * Ceiling on audio a route may hold while it is not yet known whether it owns
- * the utterance, in bytes of PCM16 at `OUTPUT_SAMPLE_RATE` (about ten seconds).
+ * Quiet period after translated speech before the microphone is heard again.
  *
- * Ownership is normally settled before the first chunk arrives; the buffer only
- * covers the case where the deciding evidence is a beat behind the audio.
+ * Short: the second speaker replies immediately in a real conversation, and a
+ * long dead period after every turn is the difference between an interpreter
+ * and a walkie-talkie. This is not part of "playing the translation" — playback
+ * is already physically over when it starts.
  */
-export const MAX_UNOWNED_AUDIO_BYTES = OUTPUT_SAMPLE_RATE * 2 * 10
+export const PLAYBACK_ECHO_GUARD_MS = 250
+
+/**
+ * Whether the microphone is closed while an utterance is being interpreted.
+ *
+ * It is not, and that is a deliberate reversal. Nothing is coming out of the
+ * speakers between the end of somebody's sentence and the start of the
+ * translated reply, so there is nothing to echo — and that gap is exactly when
+ * the other person starts talking. Closing it was a large part of why a second
+ * turn so often never happened.
+ */
+export const MUTE_WHILE_TRANSLATING = false
+
+/**
+ * Barge-in is deliberately disabled for the normal-conversation pass.
+ *
+ * Captured speech repeatedly tripped the experimental echo gate in the real
+ * traces and committed unfinished turns. While translated speech is audible we
+ * now send silence to Gemini; interruption can be reintroduced separately once
+ * ordinary alternating conversation is stable.
+ */
+export const BARGE_IN_ENABLED = false
+
+/**
+ * Consecutive above-threshold capture chunks that count as an interruption.
+ *
+ * At `CAPTURE_CHUNK_MS` each, two is about a fifth of a second: long enough
+ * that a syllable of echo the canceller missed is not an interruption, short
+ * enough that the speakers stop before the person has finished their first
+ * word.
+ */
+export const BARGE_IN_TRIGGER_CHUNKS = 2
+
+/**
+ * How far above the room, and above our own speakers as the microphone hears
+ * them, input has to be before it is treated as a person.
+ *
+ * Relative rather than absolute on purpose: with `echoCancellation: true` on
+ * one laptop the residue is nearly nothing, and on external speakers at volume
+ * it is substantial. A fixed number would either never fire or fire constantly.
+ */
+export const BARGE_IN_LEVEL_RATIO = 2.5
+
+/** Level below which nothing is a person, however quiet the room is. */
+export const BARGE_IN_ABSOLUTE_FLOOR = 0.02
+
+/** Chunks of playback used to measure what our own speakers sound like. */
+export const BARGE_IN_SETTLE_CHUNKS = 2
+
+/**
+ * Chunks kept back while playback is being measured, so that the first word of
+ * an interruption is sent rather than swallowed by the measurement.
+ */
+export const BARGE_IN_PREBUFFER_CHUNKS = 3
 
 /** MIME type for realtime audio input, including the required sample rate. */
 export const INPUT_AUDIO_MIME_TYPE = `audio/pcm;rate=${INPUT_SAMPLE_RATE}`

@@ -121,3 +121,51 @@ audio is not picked up by the microphone again.
    English/Urdu transcript lines appear.
 6. Stop and start again to confirm retry works without reloading.
 7. Block microphone access and confirm a recoverable error is shown.
+
+### Live diagnostic trace
+
+The interpreter can record what it actually did, for the failures that only
+appear in a real browser with a real microphone in a real room. It is off by
+default and records nothing until it is asked for.
+
+Enable it with either:
+
+- `http://localhost:5173/?debugLive=1`, or
+- `localStorage.linguaDebugLive = '1'` before loading the page.
+
+Have the conversation, then read the trace from the browser console:
+
+```js
+copy(window.__linguaTrace)          // to the clipboard
+console.table(window.__linguaTrace) // or just look at it
+```
+
+Each entry is `{ t, event, detail }`, where `t` is milliseconds since the trace
+was enabled. It records route ids and targets, utterance and generation ids,
+turn open/close, which route claimed the speakers, playback start and end,
+barge-in, and every session state change. It deliberately records transcript
+*lengths* rather than transcript text, and never records tokens or audio, so a
+trace can be pasted into an issue as it is.
+
+#### Replaying a captured trace
+
+A saved trace can be put back through the real coordinator, which is how the
+`es → es` and ghost-turn regressions were found and fixed:
+
+```bash
+LINGUA_TRACE=~/lingua-live-trace.json npm test -- traceReplay
+```
+
+It asserts the product invariants against the recorded ordering — no row
+translating a language into itself, no row without a human source, nothing
+outside the configured pair. Set `LINGUA_TRACE_TARGET` and
+`LINGUA_TRACE_COUNTERPART` to match the session's selectors (they default to
+`en` and auto-detect). Without `LINGUA_TRACE` the test skips, so it never runs
+in CI.
+
+The trace also records, per event: route id and target, utterance and generation
+ids, turn owner, the route that actually interpreted, the resolved product-side
+language, the reported language code, the configured pair and current
+counterpart, whether a turn had source text, and every event dropped as stale
+(`stale`, with the id that was already committed) or as a readback
+(`hold-drop`). Still no transcript text, no audio, no tokens.

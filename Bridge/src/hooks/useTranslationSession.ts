@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { TranslationSession, isSessionActive } from '../lib/translation'
 import type {
+  ConversationTurn,
   InterimTranscript,
   SessionError,
   SessionState,
   SourceLanguageCode,
   SupportedLanguageCode,
-  TranscriptTurn,
   TranslationSessionOptions,
 } from '../lib/translation'
 
 export interface UseTranslationSessionResult {
-  /** `connecting`, `listening`, `translating`, `stopped`, or `error`. */
+  /** `connecting`, `listening`, `translating`, `playing`, `stopped`, or `error`. */
   state: SessionState
   /** Selected output language for the next or current session. */
   targetLanguage: SupportedLanguageCode
@@ -19,8 +19,8 @@ export interface UseTranslationSessionResult {
   sourceLanguage: SourceLanguageCode
   /** Last failure, cleared when a new session starts. `null` while healthy. */
   error: SessionError | null
-  /** Finalised turns for this browser session only. Never persisted. */
-  transcript: TranscriptTurn[]
+  /** Conversation history, including the turn in progress. Never persisted. */
+  turns: ConversationTurn[]
   /** Live partial caption while someone is speaking, or `null`. */
   interimTranscript: InterimTranscript | null
   /** True while microphone and Live resources are held. */
@@ -41,7 +41,7 @@ export interface UseTranslationSessionResult {
   ) => Promise<void>
   /** Stop and release everything. Safe to call more than once. */
   stop: () => Promise<void>
-  /** Drop the transcript without touching the session. */
+  /** Drop the conversation history without touching the session. */
   clearTranscript: () => void
 }
 
@@ -103,7 +103,7 @@ export function useTranslationSession(
     sourceLanguage: snapshot.sourceLanguage,
     targetLanguage: snapshot.targetLanguage,
     error: snapshot.error,
-    transcript: snapshot.transcript,
+    turns: snapshot.turns,
     interimTranscript: snapshot.interimTranscript,
     isActive: isSessionActive(snapshot.state),
     start,

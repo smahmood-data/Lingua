@@ -1,13 +1,18 @@
 import {
+  BARGE_IN_ENABLED,
+  BARGE_IN_ABSOLUTE_FLOOR,
+  BARGE_IN_LEVEL_RATIO,
+  BARGE_IN_PREBUFFER_CHUNKS,
+  BARGE_IN_SETTLE_CHUNKS,
+  BARGE_IN_TRIGGER_CHUNKS,
   CAPTURE_CHUNK_MS,
   DEFAULT_LIVE_MODEL,
   DEFAULT_SOURCE_LANGUAGE,
   DEFAULT_TARGET_LANGUAGE,
   INPUT_SAMPLE_RATE,
-  MAX_UNOWNED_AUDIO_BYTES,
+  MUTE_WHILE_TRANSLATING,
   OUTPUT_SAMPLE_RATE,
   PLAYBACK_ECHO_GUARD_MS,
-  PLAYBACK_WATCHDOG_SLACK_MS,
 } from './config'
 import { sessionError, toSessionError } from './errors'
 import {
@@ -16,13 +21,11 @@ import {
   type LiveTransportEvents,
 } from './liveTransport'
 import {
-  INITIAL_SESSION_STATE,
   canStart,
+  deriveSessionState,
   isSessionActive,
-  nextSessionState,
-  type SessionEvent,
 } from './sessionMachine'
-import { finalizeOpenTurns, isNearDuplicateTranscript } from './transcript'
+import { ConversationCoordinator } from './conversation'
 import {
   createLiveTokenProvider,
   type LiveTokenProvider,
@@ -36,97 +39,26 @@ import {
   createPlaybackScheduler,
   type PlaybackScheduler,
 } from './audio/playbackScheduler'
-import {
-  AUTO_SOURCE_LANGUAGE,
-  languageCodesMatch,
-  resolveTranscriptLanguage,
-} from '../../types'
+import { createEchoGate, type EchoGate } from './audio/echoGate'
+import { liveTrace } from './debug'
+import { AUTO_SOURCE_LANGUAGE, languageCodesMatch } from '../../types'
 import type {
-  InterimTranscript,
   SessionError,
-  SessionState,
+  SessionLifecycle,
   SourceLanguageCode,
-  TranscriptKind,
-  TranscriptTurn,
   SupportedLanguageCode,
   TranslationSessionSnapshot,
 } from './types'
 
-/** How long a committed turn shadows an identical one from another route. */
-const DUPLICATE_TURN_WINDOW_MS = 2500
-
-/**
- * Completed utterances in an unfamiliar language before auto mode moves the
- * conversation onto it.
- *
- * The first counterpart is adopted immediately — there is no working pair to
- * protect and the reply has to be interpreted. Replacing one is different: a
- * single mislabelled turn would close a socket the conversation is using, so
- * the language has to hold up across a second utterance first.
- */
-const COUNTERPART_SWITCH_UTTERANCES = 2
-
-/** The pieces of a transcription this controller reads. */
-interface TranscriptionLike {
-  text?: string
-  languageCode?: string
-}
-
-interface CommittedTurnDigest {
-  kind: TranscriptKind
-  languageCode: string
-  text: string
-  at: number
-}
-
-/**
- * Whether a route may be heard for the utterance it is working on.
- *
- * `pending` means the evidence has not arrived yet, and audio produced while it
- * lasts is held rather than played: releasing it and retracting later would mean
- * both sides of the pair are briefly audible, which is the one thing an
- * interpreter must never do.
- */
-type RouteVerdict = 'pending' | 'play' | 'mute'
-
-/** What one route has gathered about the utterance currently in progress. */
-interface RouteTurn {
-  sourceText: string
-  translationText: string
-  /** The language being spoken, once it is known and belongs to the pair. */
-  language: SupportedLanguageCode | null
-  audio: Uint8Array[]
-  audioBytes: number
-  verdict: RouteVerdict
-  /** Whether another route was already being heard for this utterance. */
-  contended: boolean
-  /** Cleared once this utterance's reported language has been disproved. */
-  languageTrusted: boolean
-}
-
-/** One open Live socket, translating everything it hears into `target`. */
+/** One open Live socket. */
 interface Route {
   readonly id: number
   readonly target: SupportedLanguageCode
   transport: LiveTransport | null
-  turn: RouteTurn
-}
-
-function createRouteTurn(): RouteTurn {
-  return {
-    sourceText: '',
-    translationText: '',
-    language: null,
-    audio: [],
-    audioBytes: 0,
-    verdict: 'pending',
-    contended: false,
-    languageTrusted: true,
-  }
 }
 
 export interface TranslationSessionOptions {
-  /** Defaults to per-utterance auto detection. */
+  /** Defaults to automatic detection of the other language. */
   sourceLanguage?: SourceLanguageCode
   /** Defaults to English. */
   targetLanguage?: SupportedLanguageCode
@@ -139,28 +71,23 @@ export interface TranslationSessionOptions {
 export type SessionListener = (snapshot: TranslationSessionSnapshot) => void
 
 /**
- * Owns a two-way interpreter session.
+ * Owns the resources a two-way interpreter session needs, and nothing else.
  *
  * A Live Translate session has one `targetLanguageCode` and no source field, so
  * a single socket can only ever translate *into* one language. A conversation
  * between an A speaker and a B speaker therefore needs two of them — one
- * rendering everything into B, one rendering everything into A — both listening
- * to the same microphone for the whole session. Neither is ever restarted
- * between turns; which of them speaks is decided per utterance.
+ * rendering everything into B, one into A — both listening to the same
+ * microphone for the whole session. Neither is ever restarted between turns.
  *
- * `echoTargetLanguage: false` is the API's own half of that decision: a route
- * stays silent when the language being spoken is already its target. This class
- * is the other half, because that only holds while the model's language
- * identification is right. Every route reports what it heard, what it produced,
- * and its audio; exactly one is elected to be heard, and audio is held until
- * that election is settled. Text is never held: both transcripts are published
- * whatever the verdict.
+ * Which of them is heard, what the conversation currently consists of, and when
+ * one person's turn is over are not decided here. They are decided once, in
+ * `ConversationCoordinator`, from the evidence every route produces. This class
+ * opens sockets, moves microphone audio to them, hands their events to the
+ * coordinator, and does what the coordinator asks with the speakers.
  */
 export class TranslationSession {
-  private state: SessionState = INITIAL_SESSION_STATE
+  private lifecycle: SessionLifecycle = 'stopped'
   private error: SessionError | null = null
-  private transcript: TranscriptTurn[] = []
-  private interimTranscript: InterimTranscript | null = null
   private sourceLanguage: SourceLanguageCode
   private targetLanguage: SupportedLanguageCode
   private readonly tokenProvider: LiveTokenProvider
@@ -169,39 +96,33 @@ export class TranslationSession {
   private capture: MicrophoneCapture | null = null
   private playback: PlaybackScheduler | null = null
   private routes: Route[] = []
-  /**
-   * The other language of the conversation: the selected source, or in auto
-   * mode the first language heard that was not the target.
-   */
-  private counterpart: SupportedLanguageCode | null = null
-  private counterpartRouteId: number | null = null
-  /** Run of completed utterances in a language the pair does not carry. */
-  private unfamiliar: {
-    language: SupportedLanguageCode
-    utterances: number
-  } | null = null
+  private readonly conversation: ConversationCoordinator
+
   private abortController: AbortController | null = null
   private counterpartAbortController: AbortController | null = null
   private startupPromise: Promise<void> | null = null
   private counterpartStartupPromise: Promise<void> | null = null
+  private counterpartRouteId: number | null = null
+  private counterpartRequest = 0
   private shutdownPromise: Promise<void> | null = null
   private resourceTeardownPromise: Promise<void> | null = null
   private disposePromise: Promise<void> | null = null
 
   private generation = 0
-  private counterpartRequest = 0
   private routeCounter = 0
-  private turnCounter = 0
   private disposed = false
-  /** The route currently allowed to be heard, if any. */
-  private audioOwner: number | null = null
-  /** The route whose partial transcription drives the live caption. */
-  private interimOwner: number | null = null
-  private playbackActive = false
-  private playbackWatchdog: ReturnType<typeof setTimeout> | null = null
+  /** True while translated speech is physically audible. */
+  private speakersBusy = false
+  /** Wall clock after which the room may be sent to the API again. */
   private captureResumeAt = 0
-  private recentTurns: CommittedTurnDigest[] = []
   private silentChunk: Float32Array | null = null
+  private readonly echoGate: EchoGate = createEchoGate({
+    triggerChunks: BARGE_IN_TRIGGER_CHUNKS,
+    ratio: BARGE_IN_LEVEL_RATIO,
+    absoluteFloor: BARGE_IN_ABSOLUTE_FLOOR,
+    settleChunks: BARGE_IN_SETTLE_CHUNKS,
+    prebufferChunks: BARGE_IN_PREBUFFER_CHUNKS,
+  })
   private readonly listeners = new Set<SessionListener>()
   private snapshot: TranslationSessionSnapshot
 
@@ -210,6 +131,20 @@ export class TranslationSession {
     this.targetLanguage = options.targetLanguage ?? DEFAULT_TARGET_LANGUAGE
     this.tokenProvider = options.tokenProvider ?? createLiveTokenProvider()
     this.modelOverride = options.model
+    this.conversation = new ConversationCoordinator(
+      {
+        playAudio: (pcm16) => this.playAudio(pcm16),
+        endAudio: () => this.endAudio(),
+        flushAudio: () => this.flushAudio(),
+        changed: () => this.emit(),
+        counterpartDetected: (language) => this.openCounterpartRoute(language),
+      },
+      {
+        targetLanguage: this.targetLanguage,
+        counterpart: this.explicitCounterpart(),
+        autoDetect: this.sourceLanguage === AUTO_SOURCE_LANGUAGE,
+      },
+    )
     this.snapshot = this.createSnapshot()
   }
 
@@ -228,13 +163,6 @@ export class TranslationSession {
     sourceLanguage: SourceLanguageCode = this.sourceLanguage,
     targetLanguage: SupportedLanguageCode = this.targetLanguage,
   ): Promise<void> {
-    await this.launch(sourceLanguage, targetLanguage)
-  }
-
-  private async launch(
-    sourceLanguage: SourceLanguageCode,
-    targetLanguage: SupportedLanguageCode,
-  ): Promise<void> {
     const requestGeneration = this.generation
     const cleanupPromise = this.shutdownPromise ?? this.resourceTeardownPromise
     if (cleanupPromise) await cleanupPromise
@@ -242,7 +170,7 @@ export class TranslationSession {
     if (
       this.disposed ||
       requestGeneration !== this.generation ||
-      !canStart(this.state)
+      !canStart(this.lifecycle)
     ) {
       return
     }
@@ -252,20 +180,22 @@ export class TranslationSession {
       languageCodesMatch(sourceLanguage, targetLanguage)
     ) {
       this.error = sessionError('unknown')
-      this.applyEvent('FAIL')
+      this.lifecycle = 'error'
       this.emit()
       return
     }
 
     this.sourceLanguage = sourceLanguage
     this.targetLanguage = targetLanguage
-    // An explicit selection is the conversation pair. Auto mode learns it from
-    // the first speaker who is not already speaking the target language.
-    this.counterpart =
-      sourceLanguage === AUTO_SOURCE_LANGUAGE ? null : sourceLanguage
+    // An explicit selection *is* the conversation pair. Auto mode learns it from
+    // the first person who is not already speaking the language it renders into.
+    this.conversation.configure({
+      targetLanguage,
+      counterpart: this.explicitCounterpart(),
+      autoDetect: sourceLanguage === AUTO_SOURCE_LANGUAGE,
+    })
     this.error = null
-    this.interimTranscript = null
-    this.applyEvent('START')
+    this.lifecycle = 'connecting'
     this.emit()
 
     const generation = (this.generation += 1)
@@ -283,11 +213,8 @@ export class TranslationSession {
 
   async stop(): Promise<void> {
     this.generation += 1
-    this.counterpartRequest += 1
-    this.applyEvent('STOP')
+    this.lifecycle = 'stopped'
     await this.shutdown()
-    this.transcript = finalizeOpenTurns(this.transcript)
-    this.interimTranscript = null
     this.emit()
   }
 
@@ -314,6 +241,11 @@ export class TranslationSession {
       await this.stop()
       return
     }
+    this.conversation.configure({
+      targetLanguage,
+      counterpart: this.explicitCounterpart(),
+      autoDetect: sourceLanguage === AUTO_SOURCE_LANGUAGE,
+    })
     this.emit()
   }
 
@@ -341,11 +273,32 @@ export class TranslationSession {
   }
 
   clearTranscript(): void {
-    this.transcript = []
-    this.interimTranscript = null
-    this.recentTurns = []
-    this.emit()
+    this.conversation.clearHistory()
   }
+
+  private get state() {
+    const phase = this.conversation.phase
+    // Auto mode cannot hear the first reply safely until its newly learned
+    // return route exists. Keep the session out of Listening for that bounded
+    // handshake rather than accepting the start of an utterance only one route
+    // can answer.
+    if (
+      this.lifecycle === 'active' &&
+      phase === 'listening' &&
+      this.counterpartStartupPromise
+    ) {
+      return 'translating'
+    }
+    return deriveSessionState(this.lifecycle, phase)
+  }
+
+  private explicitCounterpart(): SupportedLanguageCode | null {
+    return this.sourceLanguage === AUTO_SOURCE_LANGUAGE
+      ? null
+      : this.sourceLanguage
+  }
+
+  // --- Startup --------------------------------------------------------------
 
   private async startAttempt(
     generation: number,
@@ -355,7 +308,7 @@ export class TranslationSession {
       const playback = await createPlaybackScheduler({
         sampleRate: OUTPUT_SAMPLE_RATE,
         onPlaybackStart: () => this.onPlaybackStart(generation),
-        onPlaybackDrained: () => this.onPlaybackDrained(generation),
+        onPlaybackEnd: () => this.onPlaybackEnd(generation),
       })
       if (this.isSuperseded(generation)) {
         await playback.dispose()
@@ -366,25 +319,7 @@ export class TranslationSession {
       const capture = await startMicrophoneCapture({
         targetSampleRate: INPUT_SAMPLE_RATE,
         chunkMs: CAPTURE_CHUNK_MS,
-        onChunk: (samples, sampleRate) => {
-          if (this.isSuperseded(generation) || this.routes.length === 0) {
-            return
-          }
-          // The translated speech comes out of the same speakers the microphone
-          // is listening to, so while it plays the room is replaced with
-          // silence rather than dropped. A gap in the stream starves the API's
-          // end-of-speech detection, which then cannot close the turn until
-          // playback finishes — the speaker's own audio keeps their turn open.
-          const muted = this.playbackActive || Date.now() < this.captureResumeAt
-          const chunk = encodeCaptureChunk(
-            muted ? this.silence(samples.length) : samples,
-            sampleRate,
-            INPUT_SAMPLE_RATE,
-          )
-          for (const route of this.routes) {
-            route.transport?.sendAudioChunk(chunk)
-          }
-        },
+        onChunk: (samples, sampleRate) => this.sendCapture(generation, samples, sampleRate),
       })
       if (this.isSuperseded(generation)) {
         await capture.stop()
@@ -392,43 +327,49 @@ export class TranslationSession {
       }
       this.capture = capture
 
+      const counterpart = this.explicitCounterpart()
       // Open sequentially. Simultaneous Live handshakes proved unreliable in
       // real browsers even though independent token requests are supported.
       const primary = await this.openRoute({
         generation,
         signal: abortController.signal,
         target: this.targetLanguage,
-        expects: this.counterpart ?? AUTO_SOURCE_LANGUAGE,
+        expects: counterpart ?? AUTO_SOURCE_LANGUAGE,
       })
       if (this.isSuperseded(generation)) {
         primary.transport?.close()
         return
       }
-      this.routes = [primary]
+      this.addRoute(primary)
 
       // The return direction opens with the session, not on demand: the reply
       // must be interpreted the moment it is spoken, and a socket opened at
       // that point would miss the first seconds of it.
-      if (this.counterpart) {
+      if (counterpart) {
         const back = await this.openRoute({
           generation,
           signal: abortController.signal,
-          target: this.counterpart,
+          target: counterpart,
           expects: this.targetLanguage,
         })
         if (this.isSuperseded(generation)) {
           back.transport?.close()
           return
         }
+        this.addRoute(back)
         this.counterpartRouteId = back.id
-        this.routes = [primary, back]
       }
 
-      this.applyEvent('CONNECTED')
+      this.lifecycle = 'active'
       this.emit()
     } catch (cause) {
       if (!this.isSuperseded(generation)) await this.fail(cause, generation)
     }
+  }
+
+  private addRoute(route: Route): void {
+    this.routes = [...this.routes, route]
+    this.conversation.addRoute(route.id, route.target)
   }
 
   private async openRoute({
@@ -460,7 +401,6 @@ export class TranslationSession {
       id: (this.routeCounter += 1),
       target,
       transport: null,
-      turn: createRouteTurn(),
     }
     route.transport = await connectLiveTransport({
       token: token.token,
@@ -473,311 +413,31 @@ export class TranslationSession {
     return route
   }
 
-  private routeEvents(generation: number, route: Route): LiveTransportEvents {
-    return {
-      onAudio: (pcm16) => {
-        if (this.isSuperseded(generation)) return
-        this.receiveAudio(route, pcm16)
-      },
-      onSourceTranscript: (transcription) => {
-        if (this.isSuperseded(generation)) return
-        route.turn.sourceText = transcription.text?.trim() ?? ''
-        this.observeSpokenLanguage(route, transcription)
-        const committed = this.recordTurn('source', transcription, route)
-        this.settleRoute(route)
-        // Both routes report the same speech, so only the one that became a row
-        // counts as an utterance.
-        if (committed) void this.considerCounterpart(generation, transcription)
-      },
-      onTranslationTranscript: (transcription) => {
-        if (this.isSuperseded(generation)) return
-        route.turn.translationText = transcription.text?.trim() ?? ''
-        this.settleRoute(route)
-        // A readback of the speaker's own words is not a translation, and a row
-        // for it would only repeat the source row. Everything else is shown,
-        // whether or not this route was the one allowed to speak it.
-        if (!this.isParroting(route)) {
-          this.recordTurn('translation', transcription, route)
-        }
-      },
-      onInterimTranscript: (transcription) => {
-        if (this.isSuperseded(generation)) return
-        this.observeSpokenLanguage(route, transcription)
-        this.settleRoute(route)
-        // Both routes transcribe the same speech. The first to describe this
-        // utterance keeps the caption, so it does not flicker between two
-        // slightly different readings of the same words.
-        if (this.interimOwner === null) this.interimOwner = route.id
-        if (this.interimOwner === route.id) this.recordInterim(transcription)
-      },
-      onInterrupted: () => {
-        if (this.isSuperseded(generation)) return
-        this.discardRouteAudio(route)
-        if (this.audioOwner !== route.id) return
-        // Only the route being heard may drop what is already scheduled.
-        this.audioOwner = null
-        try {
-          this.playback?.flush()
-        } catch {
-          // Dropping stale audio is best-effort; the queue is abandoned either
-          // way and the drain callback still returns the session to listening.
-        }
-      },
-      onTurnEnd: () => {
-        if (this.isSuperseded(generation)) return
-        this.finishRouteTurn(route)
-      },
-      onError: () => {
-        void this.fail(sessionError('live-connection-failed'), generation)
-      },
-      onClosed: (expected) => {
-        if (!expected) void this.fail(sessionError('live-disconnected'), generation)
-      },
-    }
-  }
-
   /**
-   * Note the language of the speech a route is reporting, if it is one of the
-   * two languages this conversation is between.
+   * Auto mode has learned or revised the other language of the conversation.
    *
-   * A configured pair is never replaced by model metadata: a route that reports
-   * some third language is reporting a mistake, and the utterance is treated as
-   * unidentified rather than as a new language. Auto mode before it has settled
-   * on a counterpart is the one case where an unfamiliar language is real.
+   * This route is an addition to a session that is already interpreting. When
+   * evidence changes, the stale return route is removed before its replacement
+   * opens. A failure degrades rather than ending the session: the next target-
+   * language utterance simply has no return direction to be spoken through.
    */
-  private observeSpokenLanguage(
-    route: Route,
-    transcription: TranscriptionLike,
-  ): void {
-    if (!route.turn.languageTrusted) return
-    const detected = resolveTranscriptLanguage(
-      transcription.languageCode,
-      transcription.text ?? '',
+  private openCounterpartRoute(language: SupportedLanguageCode): void {
+    const generation = this.generation
+    if (this.isSuperseded(generation)) return
+
+    const current = this.routes.find(
+      (route) => route.id === this.counterpartRouteId,
     )
-    if (!detected) return
-
-    if (languageCodesMatch(detected, this.targetLanguage)) {
-      route.turn.language = this.targetLanguage
-    } else if (
-      this.counterpart &&
-      languageCodesMatch(detected, this.counterpart)
-    ) {
-      route.turn.language = this.counterpart
-    } else if (
-      this.sourceLanguage === AUTO_SOURCE_LANGUAGE &&
-      this.counterpart === null
-    ) {
-      route.turn.language = detected
-    }
-  }
-
-  /** Whether this route handed back the speech it was given. */
-  private isParroting(route: Route): boolean {
-    const { sourceText, translationText } = route.turn
-    return Boolean(
-      sourceText &&
-        translationText &&
-        isNearDuplicateTranscript(sourceText, translationText),
-    )
-  }
-
-  /**
-   * Judge a route on everything known about the utterance so far.
-   *
-   * Parroting outranks everything: a route handing the speaker their own words
-   * back has nothing to interpret whatever language it reported, and that is
-   * precisely the case where the reported language was wrong. Otherwise the
-   * language decides, which is the common path and settles from the first
-   * partial transcription — before any audio, so nothing has to be held. Only
-   * when the API reports no usable language code at all does a route have to
-   * prove itself by producing something other than what it was given.
-   */
-  private judge(route: Route): RouteVerdict {
-    if (this.isParroting(route)) return 'mute'
-    if (route.turn.language) {
-      return languageCodesMatch(route.turn.language, route.target)
-        ? 'mute'
-        : 'play'
-    }
-    return route.turn.translationText ? 'play' : 'pending'
-  }
-
-  /**
-   * Re-judge a route and grant or withdraw the floor accordingly.
-   *
-   * Verdicts are never latched: the evidence a route was let in on can be
-   * contradicted by what it goes on to produce, and the utterance then belongs
-   * to the other route of the pair after all.
-   */
-  private settleRoute(route: Route): void {
-    const verdict = this.judge(route)
-    route.turn.verdict = verdict
-    if (verdict === 'pending') return
-
-    if (verdict === 'mute') {
-      if (this.audioOwner !== route.id) return
-      // This route contradicted the evidence it was let in on, so what it
-      // produced is dropped and the utterance is offered to the other route.
-      this.discardRouteAudio(route)
-      this.audioOwner = null
-      try {
-        this.playback?.flush()
-      } catch {
-        // Best-effort: the watchdog still returns the session to listening.
-      }
-      for (const other of this.routes) {
-        if (other.id === route.id) continue
-        // The language every route was judged on came from the same reading of
-        // the same speech, and this route just disproved it. Distrust it for
-        // the rest of the utterance — it is reported again with every
-        // transcription — and judge the others on what they produce instead.
-        other.turn.languageTrusted = false
-        other.turn.language = null
-        other.turn.contended = false
-        this.settleRoute(other)
-      }
-      return
-    }
-
-    // One translated voice per utterance. A route that would be heard while
-    // another already holds the floor keeps its audio rather than adding to it.
-    if (this.audioOwner === null) this.takeFloor(route)
-  }
-
-  private takeFloor(route: Route): void {
-    this.audioOwner = route.id
-    for (const other of this.routes) {
-      if (other.id !== route.id) other.turn.contended = true
-    }
-    const held = route.turn.audio
-    route.turn.audio = []
-    route.turn.audioBytes = 0
-    for (const chunk of held) this.playAudio(chunk)
-  }
-
-  private receiveAudio(route: Route, pcm16: Uint8Array): void {
-    const turn = route.turn
-    if (this.audioOwner === route.id) {
-      this.playAudio(pcm16)
-      return
-    }
-
-    // Held rather than dropped: a route that is not being heard right now can
-    // still turn out to be the one this utterance belongs to.
-    turn.audio.push(pcm16)
-    turn.audioBytes += pcm16.byteLength
-    while (turn.audioBytes > MAX_UNOWNED_AUDIO_BYTES && turn.audio.length > 1) {
-      turn.audioBytes -= turn.audio.shift()?.byteLength ?? 0
-    }
-  }
-
-  private playAudio(pcm16: Uint8Array): void {
-    try {
-      this.playback?.enqueue(pcm16)
-      this.armPlaybackWatchdog()
-    } catch {
-      // The output device failing is not a reason to stop interpreting. The
-      // speaker still sees what was said and translated, and the watchdog still
-      // returns the session to listening.
-    }
-  }
-
-  private discardRouteAudio(route: Route): void {
-    route.turn.audio = []
-    route.turn.audioBytes = 0
-  }
-
-  /**
-   * Close out an utterance on one route.
-   *
-   * Audio still held at this point was never heard from anyone else, so the
-   * route that produced it is the only interpretation of the utterance there is
-   * and it is released rather than lost.
-   */
-  private finishRouteTurn(route: Route): void {
-    if (
-      route.turn.verdict !== 'mute' &&
-      route.turn.audio.length > 0 &&
-      !route.turn.contended
-    ) {
-      this.takeFloor(route)
-    }
-    this.discardRouteAudio(route)
-    if (this.audioOwner === route.id) this.audioOwner = null
-    if (this.interimOwner === route.id) {
-      this.interimOwner = null
-      if (this.interimTranscript) {
-        this.interimTranscript = null
-        this.emit()
-      }
-    }
-    route.turn = createRouteTurn()
-  }
-
-  /**
-   * Auto mode: adopt the language of the first speaker who is not already
-   * speaking the target, and open the route that answers them.
-   *
-   * The pair is then kept. Replacing it on every guess churned sockets mid
-   * conversation, and a language the model reported once is not evidence that
-   * the conversation changed — a run of utterances in it is.
-   */
-  private async considerCounterpart(
-    generation: number,
-    transcription: TranscriptionLike,
-  ): Promise<void> {
-    if (this.sourceLanguage !== AUTO_SOURCE_LANGUAGE) return
-    const detected = resolveTranscriptLanguage(
-      transcription.languageCode,
-      transcription.text ?? '',
-    )
-    if (
-      !detected ||
-      languageCodesMatch(detected, this.targetLanguage) ||
-      (this.counterpart && languageCodesMatch(detected, this.counterpart))
-    ) {
-      // The conversation is where the session thinks it is.
-      this.unfamiliar = null
-      return
-    }
-
-    this.unfamiliar =
-      this.unfamiliar && languageCodesMatch(this.unfamiliar.language, detected)
-        ? { language: detected, utterances: this.unfamiliar.utterances + 1 }
-        : { language: detected, utterances: 1 }
-
-    if (
-      this.counterpart &&
-      this.unfamiliar.utterances < COUNTERPART_SWITCH_UTTERANCES
-    ) {
-      return
-    }
-    this.unfamiliar = null
-    await this.setCounterpart(generation, detected)
-  }
-
-  /**
-   * Point the return direction at `language`.
-   *
-   * The old route is closed before the replacement opens, so a third language
-   * can never be spoken through two routes at once. This route is an addition
-   * to a session that is already interpreting, so a failure degrades it rather
-   * than ending it: the claim is released and the next utterance tries again.
-   */
-  private async setCounterpart(
-    generation: number,
-    language: SupportedLanguageCode,
-  ): Promise<void> {
-    if (this.isSuperseded(generation) || this.counterpart === language) return
+    if (current && languageCodesMatch(current.target, language)) return
 
     const request = (this.counterpartRequest += 1)
-    this.counterpart = language
     this.counterpartAbortController?.abort()
     this.counterpartAbortController = null
-    const existing = this.routes.find(
-      (candidate) => candidate.id === this.counterpartRouteId,
-    )
-    if (existing) this.closeRoute(existing)
+    if (current) {
+      current.transport?.close()
+      this.routes = this.routes.filter((route) => route.id !== current.id)
+      this.conversation.removeRoute(current.id)
+    }
     this.counterpartRouteId = null
 
     const abortController = new AbortController()
@@ -790,105 +450,200 @@ export class TranslationSession {
           target: language,
           expects: this.targetLanguage,
         })
-        if (this.isSuperseded(generation) || request !== this.counterpartRequest) {
+        if (
+          this.isSuperseded(generation) ||
+          request !== this.counterpartRequest
+        ) {
           route.transport?.close()
           return
         }
+        this.addRoute(route)
         this.counterpartRouteId = route.id
-        this.routes = [...this.routes, route]
+        this.emit()
       } catch {
-        if (!this.isSuperseded(generation) && request === this.counterpartRequest) {
-          this.counterpart = null
-          this.counterpartRouteId = null
-        }
+        // Nothing to undo: the pair the coordinator settled on is still right,
+        // it just has no socket answering it yet.
       }
     })()
     this.counterpartStartupPromise = startupPromise
-    try {
-      await startupPromise
-    } finally {
-      if (this.counterpartStartupPromise === startupPromise) {
+    void startupPromise.finally(() => {
+      if (
+        this.counterpartStartupPromise === startupPromise &&
+        request === this.counterpartRequest
+      ) {
         this.counterpartStartupPromise = null
+        this.counterpartAbortController = null
+        if (!this.isSuperseded(generation)) this.emit()
       }
+    })
+  }
+
+  private routeEvents(generation: number, route: Route): LiveTransportEvents {
+    const conversation = this.conversation
+    // Route id and target, never text or tokens: a trace is meant to be
+    // pasteable into an issue.
+    const trace = (event: string, detail: Record<string, unknown> = {}) => {
+      liveTrace(event, { route: route.id, into: route.target, ...detail })
+    }
+    return {
+      onSpeechStart: (utterance) => {
+        if (this.isSuperseded(generation)) return
+        trace('speech-start', { utterance })
+        conversation.speechStarted(route.id, utterance)
+      },
+      onSpeechEnd: (utterance) => {
+        if (this.isSuperseded(generation)) return
+        trace('speech-end', { utterance })
+        conversation.speechEnded(route.id, utterance)
+      },
+      onAudio: (pcm16, response) => {
+        if (this.isSuperseded(generation)) return
+        trace('audio', { generation: response, bytes: pcm16.byteLength })
+        conversation.audio(route.id, response, pcm16)
+      },
+      onSourceTranscript: (transcription, finished, utterance) => {
+        if (this.isSuperseded(generation)) return
+        trace('source-transcript', {
+          utterance,
+          finished,
+          length: transcription.text?.length ?? 0,
+          language: transcription.languageCode,
+        })
+        conversation.sourceTranscription(
+          route.id,
+          utterance,
+          transcription,
+          finished,
+        )
+      },
+      onTranslationTranscript: (transcription, response) => {
+        if (this.isSuperseded(generation)) return
+        trace('translation-transcript', {
+          generation: response,
+          length: transcription.text?.length ?? 0,
+        })
+        conversation.translationTranscription(route.id, response, transcription)
+      },
+      onInterimTranscript: (transcription, utterance) => {
+        if (this.isSuperseded(generation)) return
+        trace('interim-transcript', {
+          utterance,
+          length: transcription.text?.length ?? 0,
+          language: transcription.languageCode,
+        })
+        conversation.interimTranscription(route.id, utterance, transcription)
+      },
+      onInterrupted: (response) => {
+        if (this.isSuperseded(generation)) return
+        trace('interrupted', { generation: response })
+        conversation.interrupted(route.id, response)
+      },
+      onGenerationComplete: (response) => {
+        if (this.isSuperseded(generation)) return
+        trace('generation-complete', { generation: response })
+        conversation.generationComplete(route.id, response)
+      },
+      onTurnEnd: (utterance, response) => {
+        if (this.isSuperseded(generation)) return
+        trace('turn-end', { utterance, generation: response })
+        conversation.routeTurnEnd(route.id, utterance, response)
+      },
+      onError: () => {
+        void this.fail(sessionError('live-connection-failed'), generation)
+      },
+      onClosed: (expected) => {
+        if (!expected) void this.fail(sessionError('live-disconnected'), generation)
+      },
     }
   }
 
-  private closeRoute(route: Route): void {
-    this.routes = this.routes.filter((candidate) => candidate !== route)
-    if (this.audioOwner === route.id) this.audioOwner = null
-    if (this.interimOwner === route.id) this.interimOwner = null
-    route.transport?.close()
-    route.transport = null
-  }
+  // --- Microphone -----------------------------------------------------------
 
   /**
-   * Commit one side of a spoken turn.
+   * Send one captured chunk to every open route.
    *
-   * Source and translation arrive separately and seconds apart — the speaker's
-   * words are transcribed long before the model has finished speaking the
-   * translation — so each is committed as soon as it is known rather than being
-   * held back for its partner. Neither depends on playback: text the API
-   * produced is shown whether or not this route was allowed to speak it.
+   * Both sockets always receive something, never nothing: a gap in the stream
+   * starves the API's end-of-speech detection, and the speaker's turn then
+   * cannot close. What they receive is the room, or silence standing in for it.
    *
-   * Returns whether this was new speech rather than the other route's report of
-   * something already on screen.
+   * The room is replaced by silence only while translated speech is physically
+   * audible, because it comes out of the same speakers this microphone is
+   * listening to and feeding it back would make the session interpret itself.
+   * That is the only reason, which is why it is no longer done for the whole of
+   * "translating" as well: nothing is audible between the end of somebody's
+   * sentence and the start of the reply, and closing the microphone across that
+   * gap is a large part of why a second person so often could not get a word in.
+   *
+   * The echo-gate path remains available behind `BARGE_IN_ENABLED`, but the
+   * normal-conversation configuration below suppresses all room audio while
+   * the speakers or their short echo tail are active.
    */
-  private recordTurn(
-    kind: TranscriptKind,
-    transcription: TranscriptionLike,
-    route: Route,
-  ): boolean {
-    const text = transcription.text?.trim() ?? ''
-    if (!text) return false
+  private sendCapture(
+    generation: number,
+    samples: Float32Array,
+    sampleRate: number,
+  ): void {
+    if (this.isSuperseded(generation) || this.routes.length === 0) return
 
-    const languageCode =
-      resolveTranscriptLanguage(transcription.languageCode, text) ??
-      transcription.languageCode ??
-      (kind === 'translation' ? route.target : 'und')
-    const now = Date.now()
-    if (this.isDuplicateTurn(kind, languageCode, text, now)) return false
+    // Auto mode has learned the other language but the socket that answers in
+    // it is still opening. A reply now could only be interpreted one way, so
+    // the room waits out that bounded handshake.
+    const handshake = this.counterpartStartupPromise !== null
+    const translating =
+      MUTE_WHILE_TRANSLATING && this.conversation.phase === 'translating'
+    if (handshake || translating) {
+      this.echoGate.setSpeaking(false)
+      this.broadcast(this.silence(samples.length), sampleRate)
+      return
+    }
 
-    this.turnCounter += 1
-    const turn: TranscriptTurn = {
-      id: `turn-${this.turnCounter}`,
-      kind,
-      text,
-      languageCode,
-      isFinal: true,
-      createdAt: now,
+    // The short tail after playback is treated exactly like playback and
+    // guarded against our own speakers.
+    const speakers = this.speakersBusy || Date.now() < this.captureResumeAt
+
+    // Normal alternating conversation is the current product contract. The
+    // experimental echo gate repeatedly interpreted continuing speech and
+    // speaker residue as barge-in in the real traces, which committed partial
+    // turns and fed their remainder into a new turn. Keep both Live routes fed
+    // with silence while output is audible; the microphone resumes as soon as
+    // playback and its short echo tail have ended.
+    if (speakers && !BARGE_IN_ENABLED) {
+      this.echoGate.setSpeaking(false)
+      this.broadcast(this.silence(samples.length), sampleRate)
+      return
     }
-    this.transcript = [...this.transcript, turn]
-    if (kind === 'source') {
-      // The live caption has been superseded by the row it was previewing.
-      this.interimTranscript = null
+
+    this.echoGate.setSpeaking(speakers)
+    const decision = this.echoGate.inspect(samples)
+
+    if (decision === 'pass') {
+      this.broadcast(samples, sampleRate)
+      return
     }
-    this.emit()
-    return true
+    if (decision === 'suppress') {
+      this.broadcast(this.silence(samples.length), sampleRate)
+      return
+    }
+
+    // Somebody is talking over the translation. Human speech outranks
+    // synthesized speech: the speakers stop, the turn being spoken is committed
+    // as it stands, and the words that were held back while the interruption
+    // was being confirmed go out so the first one is not lost.
+    const held = this.echoGate.takePrebuffer()
+    liveTrace('barge-in', { chunks: held.length })
+    this.conversation.bargeIn()
+    this.speakersBusy = false
+    // Deliberately after `bargeIn`: flushing the queue reports playback as
+    // ended, which arms the post-playback guard. There is nothing left to guard
+    // against, and the person interrupting must be heard now.
+    this.captureResumeAt = 0
+    this.echoGate.setSpeaking(false)
+    for (const chunk of held) this.broadcast(chunk, sampleRate)
   }
 
-  /**
-   * Every open route hears the same microphone, so one sentence is reported by
-   * both of them. The first to arrive owns the row.
-   */
-  private isDuplicateTurn(
-    kind: TranscriptKind,
-    languageCode: string,
-    text: string,
-    now: number,
-  ): boolean {
-    this.recentTurns = this.recentTurns.filter(
-      (entry) => now - entry.at < DUPLICATE_TURN_WINDOW_MS,
-    )
-    const duplicate = this.recentTurns.some(
-      (entry) =>
-        entry.kind === kind &&
-        languageCodesMatch(entry.languageCode, languageCode) &&
-        isNearDuplicateTranscript(entry.text, text),
-    )
-    if (!duplicate) {
-      this.recentTurns = [...this.recentTurns, { kind, languageCode, text, at: now }]
-    }
-    return duplicate
+  private broadcast(samples: Float32Array, sampleRate: number): void {
+    const chunk = encodeCaptureChunk(samples, sampleRate, INPUT_SAMPLE_RATE)
+    for (const route of this.routes) route.transport?.sendAudioChunk(chunk)
   }
 
   /** Reusable buffer of zeroes matching the current capture chunk length. */
@@ -899,90 +654,68 @@ export class TranslationSession {
     return this.silentChunk
   }
 
-  private recordInterim(transcription: TranscriptionLike): void {
-    const text = transcription.text?.trim() ?? ''
-    if (!text) return
-    this.interimTranscript = {
-      text,
-      languageCode:
-        resolveTranscriptLanguage(transcription.languageCode, text) ??
-        transcription.languageCode ??
-        'und',
+  // --- Speakers -------------------------------------------------------------
+
+  private playAudio(pcm16: Uint8Array): boolean {
+    try {
+      return this.playback?.enqueue(pcm16) ?? false
+    } catch {
+      // The output device failing is not a reason to stop interpreting. The
+      // speakers still see what was said and translated, and the turn closes
+      // on the routes going quiet instead of on playback.
+      return false
     }
-    this.emit()
   }
+
+  private endAudio(): void {
+    try {
+      this.playback?.endStream()
+    } catch {
+      // The scheduler's idle fallback still ends the stream.
+    }
+  }
+
+  private flushAudio(): void {
+    try {
+      this.playback?.flush()
+    } catch {
+      // Dropping stale audio is best-effort; the queue is abandoned either way.
+    }
+  }
+
+  private onPlaybackStart(generation: number): void {
+    if (this.isSuperseded(generation)) return
+    this.speakersBusy = true
+    liveTrace('playback-start')
+    this.conversation.playbackStarted()
+  }
+
+  /**
+   * Translated speech has physically finished.
+   *
+   * The microphone reopens after a short guard, which is not part of playing
+   * the translation: the conversation is already listening again by then.
+   */
+  private onPlaybackEnd(generation: number): void {
+    if (this.isSuperseded(generation)) return
+    this.speakersBusy = false
+    this.captureResumeAt = Date.now() + PLAYBACK_ECHO_GUARD_MS
+    liveTrace('playback-end')
+    this.conversation.playbackEnded()
+  }
+
+  // --- Teardown -------------------------------------------------------------
 
   private isSuperseded(generation: number): boolean {
     return generation !== this.generation
   }
 
-  private applyEvent(event: SessionEvent): boolean {
-    const next = nextSessionState(this.state, event)
-    if (next === null || next === this.state) return false
-    this.state = next
-    return true
-  }
-
-  private onPlaybackStart(generation: number): void {
-    if (this.isSuperseded(generation)) return
-    this.playbackActive = true
-    this.armPlaybackWatchdog()
-    if (this.applyEvent('OUTPUT_START')) this.emit()
-  }
-
-  private onPlaybackDrained(generation: number): void {
-    if (this.isSuperseded(generation)) return
-    this.releasePlayback()
-  }
-
-  /**
-   * Bound how long the session may believe it is playing.
-   *
-   * The microphone is silenced for exactly that long, so a completion callback
-   * that never arrives would leave it deaf and the session permanently busy.
-   * The deadline is the playback scheduler's own clock rather than a guess: it
-   * knows how much audio is still queued, and the slack only has to cover
-   * delivering the callback once that runs out.
-   */
-  private armPlaybackWatchdog(): void {
-    const playback = this.playback
-    if (!playback) return
-    this.clearPlaybackWatchdog()
-    this.playbackWatchdog = setTimeout(
-      () => {
-        this.playbackWatchdog = null
-        this.releasePlayback()
-      },
-      playback.remainingMs() + PLAYBACK_WATCHDOG_SLACK_MS,
-    )
-  }
-
-  private clearPlaybackWatchdog(): void {
-    if (this.playbackWatchdog !== null) {
-      clearTimeout(this.playbackWatchdog)
-      this.playbackWatchdog = null
-    }
-  }
-
-  /** Return the microphone and the session state to listening. Idempotent. */
-  private releasePlayback(): void {
-    this.clearPlaybackWatchdog()
-    if (this.playbackActive) {
-      this.playbackActive = false
-      this.captureResumeAt = Date.now() + PLAYBACK_ECHO_GUARD_MS
-    }
-    if (this.applyEvent('OUTPUT_END')) this.emit()
-  }
-
   private async fail(cause: unknown, generation: number): Promise<void> {
     if (this.isSuperseded(generation)) return
     this.generation += 1
-    this.counterpartRequest += 1
     this.error = toSessionError(cause)
-    this.applyEvent('FAIL')
+    this.lifecycle = 'error'
     await this.teardownResources()
-    this.transcript = finalizeOpenTurns(this.transcript)
-    this.interimTranscript = null
     this.emit()
   }
 
@@ -1018,20 +751,16 @@ export class TranslationSession {
     } = this
     this.abortController = null
     this.counterpartAbortController = null
-    this.routes = []
-    this.counterpart = null
+    this.counterpartRequest += 1
     this.counterpartRouteId = null
-    this.unfamiliar = null
-    this.audioOwner = null
-    this.interimOwner = null
+    this.routes = []
     this.capture = null
     this.playback = null
-    this.clearPlaybackWatchdog()
-    this.playbackActive = false
+    this.speakersBusy = false
     this.captureResumeAt = 0
     this.silentChunk = null
-    // A new session must be free to repeat a phrase the last one committed.
-    this.recentTurns = []
+    this.echoGate.reset()
+    this.conversation.reset()
 
     const teardownPromise = (async () => {
       abortController?.abort()
@@ -1057,14 +786,25 @@ export class TranslationSession {
       state: this.state,
       sourceLanguage: this.sourceLanguage,
       targetLanguage: this.targetLanguage,
+      counterpartLanguage: this.conversation.counterpartLanguage,
       error: this.error,
-      transcript: this.transcript,
-      interimTranscript: this.interimTranscript,
+      turns: this.conversation.turns,
+      interimTranscript: this.conversation.interimTranscript,
     }
   }
 
   private emit(): void {
+    const previous = this.snapshot
     this.snapshot = this.createSnapshot()
+    if (previous.state !== this.snapshot.state) {
+      liveTrace('state', {
+        from: previous.state,
+        to: this.snapshot.state,
+        turns: this.snapshot.turns.length,
+        pair: `${this.sourceLanguage}<->${this.targetLanguage}`,
+        counterpart: this.snapshot.counterpartLanguage,
+      })
+    }
     for (const listener of this.listeners) listener(this.snapshot)
   }
 }

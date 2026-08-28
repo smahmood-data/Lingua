@@ -46,10 +46,21 @@ export async function startMicrophoneCapture(
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
-        // Echo cancellation matters here: on a single laptop the translated
-        // audio comes out of the same speakers the microphone is listening to.
+        // The one that matters most. On a single laptop the translated audio
+        // comes out of the same speakers this microphone is listening to, and
+        // this is what stops the session interpreting itself. It is also what
+        // makes interruption possible at all: the quieter the residue, the
+        // easier a person is to tell apart from it.
         echoCancellation: true,
+        // Kept on. It lowers the floor the API's end-of-speech detection works
+        // against, and it lowers what the echo gate has to measure — a quieter
+        // room helps both sides of that comparison equally.
         noiseSuppression: true,
+        // Kept on, with a known trade-off. Automatic gain makes the second
+        // person audible when they are further from the microphone, which this
+        // product needs; it also normalises levels, which would blunt a fixed
+        // loudness threshold. The gate is relative and re-measured per stretch
+        // of playback, so it tracks whatever gain the browser settles on.
         autoGainControl: true,
       },
       video: false,
