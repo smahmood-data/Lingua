@@ -1,124 +1,140 @@
-/* The conversation is the canvas: two people talking, one language per side.
-   Alignment, accent lines, and language colors carry the identity of each
-   participant — no chat bubbles, no cards. */
+/*
+  The conversation is the canvas: two people talking, one lane each, in the
+  order they spoke. Identity comes from where a turn sits, the colour of its
+  language, and the label above it — not from bubbles or cards.
+*/
 .conversation {
-  width: min(100% - 48px, 1060px);
+  width: min(100% - clamp(32px, 5.5vw, 140px), 1680px);
   margin: 0 auto;
-  padding: 10px 0 24px;
+  padding: clamp(10px, 2vh, 22px) 0 24px;
 }
 
-.conversation-columns {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: clamp(28px, 5vw, 72px);
-  align-items: start;
-}
-
-/* A hairline down the middle of the gutter separates the two sides. */
-.conversation-columns::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  background: var(--line);
-}
-
-.column-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 8px 0 12px;
-  background: linear-gradient(var(--paper) 78%, transparent);
-}
-
-.column-dot {
-  align-self: center;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--column-color);
-}
-
-.column-language {
-  color: var(--column-color);
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.column-speaker {
-  color: var(--ink-mute);
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.column-speaker::before {
-  content: '·';
-  margin-right: 8px;
-}
-
-.column-turns {
+.thread {
   display: flex;
   flex-direction: column;
+  gap: clamp(22px, 3.2vh, 34px);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* Each turn hangs off a short accent line in its language's color. */
+.thread-row {
+  display: flex;
+}
+
+/*
+  A turn resolves the two accents it is handed into reading inks once, here,
+  so every rule below is theme-agnostic: on paper the accents are used as
+  chosen, on the dark canvas they are lifted toward the text colour.
+*/
 .turn {
-  padding: 18px 0 20px 16px;
-  border-inline-start: 2px solid
-    color-mix(in srgb, var(--column-color) 55%, transparent);
+  --speaker-ink: color-mix(
+    in srgb,
+    var(--speaker-accent) calc(100% - var(--accent-lift)),
+    var(--ink)
+  );
+  --translation-ink: color-mix(
+    in srgb,
+    var(--translation-accent) calc(100% - var(--accent-lift)),
+    var(--ink)
+  );
+
+  width: min(42%, 560px);
 }
 
-.column-turns > li + li {
-  margin-top: 6px;
+/* The two lanes. Everything else about a turn is identical on both sides. */
+.turn[data-side='right'] {
+  margin-inline-start: auto;
 }
 
-/* What was said: comfortable reading size, in the speaker's own script. */
-.turn-source {
+/* Who is speaking, in their language's colour. */
+.turn-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--speaker-ink);
+}
+
+.turn-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--speaker-ink);
+}
+
+.turn-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+  color: var(--ink-mute);
+  font-size: 0.62rem;
+  letter-spacing: 0.11em;
+}
+
+.turn-live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* What was said, in the speaker's own script. */
+.turn-said {
+  margin-top: 10px;
   color: var(--ink);
-  font-size: 1.06rem;
-  font-weight: 560;
-  line-height: 1.55;
+  font-size: 1.12rem;
+  line-height: 1.6;
   overflow-wrap: break-word;
 }
 
-/* The interpretation stays attached to its source, set slightly quieter. */
-.turn-translation {
-  margin-top: 10px;
+/* Words Lingua has heard but not yet committed to the transcript. */
+.turn-said-provisional {
+  color: var(--ink-mute);
 }
 
-.turn-translation-label {
-  margin-bottom: 3px;
-  color: var(--translation-color);
+/* The interpretation, tied to its source by a rule in its own language's
+   colour — the one place two languages meet inside a single turn. */
+.turn-into {
+  margin-top: 12px;
+  padding-inline-start: 14px;
+  border-inline-start: 2px solid
+    color-mix(in srgb, var(--translation-ink) 45%, transparent);
+}
+
+.turn-into-label {
+  color: color-mix(in srgb, var(--translation-ink) 72%, var(--ink-mute));
   font-size: 0.66rem;
   font-weight: 700;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
-  opacity: 0.9;
 }
 
-.turn-translated {
-  color: var(--ink-soft);
-  font-size: 1.02rem;
-  line-height: 1.55;
+.turn-heard {
+  margin-top: 6px;
+  color: color-mix(in srgb, var(--translation-ink) 78%, var(--ink));
+  font-size: 1.24rem;
+  font-weight: 600;
+  line-height: 1.5;
   overflow-wrap: break-word;
 }
 
-/* The turn currently being spoken back takes its language's color. */
-.turn[data-live] .turn-translated {
-  color: var(--ink);
+/* The translation is on its way. */
+.turn-pending {
+  display: block;
+  width: min(62%, 260px);
+  height: 1.05em;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--translation-ink) 13%, var(--paper));
+}
+
+.turn-ghost .turn-said {
+  font-style: italic;
 }
 
 /* Urdu (Nastaliq) needs generous line height and a size step up. */
@@ -130,44 +146,25 @@
   padding-block: 2px;
 }
 
-.turn-source.urdu-text {
-  font-size: 1.24rem;
+.turn-said.urdu-text {
+  font-size: 1.3rem;
 }
 
-.turn-translated.urdu-text {
-  font-size: 1.2rem;
+.turn-heard.urdu-text {
+  font-size: 1.44rem;
   line-height: 2.1;
 }
 
-/* The live caption of whoever is speaking right now. */
-.turn-ghost {
-  padding: 18px 0 20px 16px;
-  border-inline-start: 2px dashed
-    color-mix(in srgb, var(--column-color) 45%, transparent);
-}
-
-.turn-ghost .turn-source {
-  color: var(--ink-mute);
-  font-weight: 500;
-}
-
-.ghost-tail {
-  color: var(--column-color);
-}
-
-.conversation-end {
-  height: 1px;
-}
-
-/* New turns settle in gently; reduced-motion users get instant content. */
 @media (prefers-reduced-motion: no-preference) {
+  /* Turns are keyed by a stable id and mount exactly once, so this runs on
+     arrival and never again, however much the words inside them grow. */
   .turn {
-    animation: turn-in 0.32s cubic-bezier(0.2, 0.7, 0.3, 1) both;
-    animation-delay: calc(var(--turn-index) * 60ms);
+    animation: turn-in 300ms var(--ease-out) backwards;
   }
 
-  .turn-ghost {
-    animation: turn-in 0.25s ease-out both;
+  .turn-live-dot,
+  .turn-pending {
+    animation: turn-breathe 1.6s ease-in-out infinite;
   }
 
   @keyframes turn-in {
@@ -180,18 +177,48 @@
       translate: 0 0;
     }
   }
+
+  @keyframes turn-breathe {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 860px) {
   .conversation {
-    width: min(100% - 36px, 1060px);
+    width: min(100% - 36px, 1680px);
   }
 
-  .conversation-columns {
+  .turn {
+    width: min(52%, 560px);
+  }
+}
+
+/* Below this the lane has to give, but never all of it: the offset between
+   the two sides is what makes two people legible at a glance. */
+@media (max-width: 620px) {
+  .conversation {
+    width: min(100% - 28px, 1680px);
+  }
+
+  .thread {
     gap: 22px;
   }
 
   .turn {
-    padding-inline-start: 12px;
+    width: 90%;
+  }
+
+  .turn-said {
+    font-size: 1.06rem;
+  }
+
+  .turn-heard {
+    font-size: 1.14rem;
   }
 }

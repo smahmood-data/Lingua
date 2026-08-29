@@ -1,126 +1,130 @@
-/* Language picker: a quiet raised chip on the idle canvas, opening into an
-   elegant menu. The trigger reads "From — Bengali বাংলা" at a glance. */
+/*
+  The language picker: a quiet raised control on the home canvas that opens
+  into a menu of every supported language, each with its own badge, English
+  name, and the name it calls itself.
+*/
 .language-select {
   position: relative;
   min-width: 0;
+  text-align: start;
 }
 
 .language-trigger {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 11px;
   width: 100%;
-  min-height: 58px;
-  padding: 9px 14px 9px 16px;
+  min-height: 54px;
+  padding: 8px 13px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-m);
   background: var(--paper-raised);
   color: var(--ink);
   text-align: start;
-  box-shadow: 0 1px 2px rgb(28 34 30 / 5%);
+  box-shadow: 0 1px 2px rgb(28 34 30 / 4%);
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .language-trigger:hover {
   border-color: var(--accent-line);
-  box-shadow: 0 3px 10px rgb(28 34 30 / 8%);
+  box-shadow: 0 3px 10px rgb(28 34 30 / 7%);
 }
 
 .language-trigger[aria-expanded='true'] {
   border-color: var(--accent);
-  box-shadow: 0 3px 12px rgb(12 107 78 / 12%);
+  box-shadow: 0 3px 12px rgb(12 107 78 / 11%);
 }
 
-.language-trigger-text {
+.language-value {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
-}
-
-.language-trigger-label {
-  color: var(--ink-mute);
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.language-trigger-value {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  min-width: 0;
-  font-size: 0.95rem;
-  font-weight: 640;
-  white-space: nowrap;
-}
-
-.language-dot {
-  flex: none;
-  align-self: center;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+  margin-inline-end: auto;
 }
 
 .language-name {
   overflow: hidden;
+  font-size: 0.95rem;
+  font-weight: 620;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .language-native {
+  overflow: hidden;
   color: var(--ink-mute);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 500;
-}
-
-.language-auto-glyph {
-  flex: none;
-  align-self: center;
-  color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .language-chevron {
   flex: none;
   color: var(--ink-mute);
-  transition: rotate 0.18s ease;
+  transition: rotate var(--dur-fast) var(--ease-out);
 }
 
 .language-chevron.chevron-open {
   rotate: 180deg;
 }
 
-/* The menu floats over the canvas; long lists scroll inside it. */
+/* --- Auto-detect's badge -------------------------------------------------- */
+
+/* Every language shows a flag; Auto-detect shows listening instead, and needs
+   a disc of its own to sit in so the rows still line up. */
+.language-token {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.token-auto {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+/* --- The menu ------------------------------------------------------------ */
+
 .language-menu {
   position: absolute;
   z-index: 40;
   inset-inline: 0;
-  top: calc(100% + 6px);
-  max-height: 264px;
+  min-width: 316px;
+  max-height: 300px;
   margin: 0;
-  padding: 5px;
+  padding: 6px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: var(--radius-m);
   background: var(--paper-raised);
-  box-shadow:
-    0 2px 6px rgb(28 34 30 / 6%),
-    0 14px 34px rgb(28 34 30 / 12%);
+  box-shadow: var(--lift-menu);
   list-style: none;
+}
+
+.language-menu[data-placement='below'] {
+  top: calc(100% + 7px);
+}
+
+.language-menu[data-placement='above'] {
+  bottom: calc(100% + 7px);
 }
 
 .language-option {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 11px;
+  min-height: 54px;
+  padding: 6px 10px;
   border-radius: var(--radius-s);
   cursor: pointer;
-  font-size: 0.9rem;
 }
 
 .language-option.option-active {
@@ -129,15 +133,17 @@
 
 .option-text {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  gap: 1px;
   min-width: 0;
+  margin-inline-end: auto;
 }
 
 .option-label {
   overflow: hidden;
   color: var(--ink);
-  font-weight: 560;
+  font-size: 0.92rem;
+  font-weight: 580;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -145,34 +151,74 @@
 .option-native {
   overflow: hidden;
   color: var(--ink-mute);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .option-selected .option-label {
   color: var(--accent-ink);
+  font-weight: 650;
 }
 
 .language-check {
   flex: none;
-  margin-inline-start: auto;
   color: var(--accent);
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .language-menu {
-    animation: menu-in 0.16s ease-out;
+    animation: menu-in var(--dur-fast) var(--ease-out);
+  }
+
+  .language-menu[data-placement='above'] {
+    animation-name: menu-in-above;
   }
 
   @keyframes menu-in {
     from {
       opacity: 0;
-      translate: 0 -4px;
+      translate: 0 -5px;
     }
     to {
       opacity: 1;
       translate: 0 0;
     }
+  }
+
+  @keyframes menu-in-above {
+    from {
+      opacity: 0;
+      translate: 0 5px;
+    }
+    to {
+      opacity: 1;
+      translate: 0 0;
+    }
+  }
+}
+
+@media (max-width: 640px) {
+  .language-trigger {
+    gap: 9px;
+    min-height: 50px;
+    padding: 7px 10px;
+  }
+
+  .language-token {
+    width: 20px;
+    height: 20px;
+  }
+
+  .language-name {
+    font-size: 0.88rem;
+  }
+
+  .language-native {
+    display: none;
+  }
+
+  .language-menu {
+    min-width: 0;
   }
 }

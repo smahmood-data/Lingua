@@ -1,12 +1,17 @@
-/* A single calm strip for problems — clear, actionable, never alarming. */
+/*
+  One calm strip between the masthead and the canvas: what happened, and the
+  step that helps. It takes its own room rather than floating over the
+  conversation, so nothing it covers is ever lost behind it.
+*/
 .status-notice {
-  width: min(100%, 560px);
-  margin: 6px auto 20px;
-  padding: 13px 18px;
+  flex: none;
+  width: min(100% - 40px, 560px);
+  margin: 14px auto 0;
+  padding: 11px 15px;
   border: 1px solid var(--line);
-  border-inline-start-width: 3px;
   border-radius: var(--radius-m);
   background: var(--paper-raised);
+  text-align: start;
 }
 
 .notice-warning {
@@ -21,7 +26,7 @@
 
 .notice-title {
   color: var(--ink);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   font-weight: 640;
 }
 
@@ -34,21 +39,21 @@
 }
 
 .notice-detail {
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--ink-soft);
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   line-height: 1.5;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .status-notice {
-    animation: notice-in 0.28s ease-out;
+    animation: notice-in var(--dur-med) var(--ease-out) backwards;
   }
 
   @keyframes notice-in {
     from {
       opacity: 0;
-      translate: 0 -6px;
+      translate: 0 -5px;
     }
     to {
       opacity: 1;

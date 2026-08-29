@@ -13,8 +13,9 @@ import { SessionBar } from './components/SessionBar'
 import { StatusNotice } from './components/StatusNotice'
 import { TopBar } from './components/TopBar'
 import { useControlKeyboard } from './hooks/useControlKeyboard'
+import { useTheme } from './hooks/useTheme'
 import { useTranslationSession } from './hooks/useTranslationSession'
-import type { ConversationTurn, SessionState } from './lib/translation'
+import type { SessionState } from './lib/translation'
 import {
   AUTO_SOURCE_LANGUAGE,
   languageCodesMatch,
@@ -25,17 +26,11 @@ import {
 import { languageColor } from './languageDisplay'
 import './App.css'
 
+/** Which composition the canvas is in. */
 type AppMode = 'idle' | 'session' | 'ended'
 
-function toMicPhase(state: SessionState, error: boolean): MicPhase {
-  if (error) return 'error'
-  if (state === 'connecting') return 'connecting'
-  if (state === 'listening') return 'listening'
-  if (state === 'translating') return 'translating'
-  if (state === 'playing') return 'playing'
-  if (state === 'stopped') return 'ended'
-  return 'idle'
-}
+/** A start or stop the session has accepted but not finished. */
+type Transition = 'start' | 'stop' | null
 
 function micLabel(phase: MicPhase): string {
   switch (phase) {
@@ -43,14 +38,13 @@ function micLabel(phase: MicPhase): string {
       return 'Start conversation'
     case 'connecting':
       return 'Connecting'
+    case 'ending':
+      return 'Ending conversation'
     case 'listening':
-      return 'Stop conversation'
     case 'translating':
-      return 'Stop conversation'
     case 'playing':
-      return 'Stop conversation'
+      return 'End conversation'
     case 'ended':
-      return 'Start new conversation'
     case 'error':
       return 'Start new conversation'
   }
@@ -64,6 +58,35 @@ function leftLanguage(
   return sourceLanguage === AUTO_SOURCE_LANGUAGE
     ? counterpartLanguage
     : sourceLanguage
+}
+
+/**
+ * What the microphone is showing, derived from the session and from a start or
+ * stop the session has accepted but not yet announced. There is no second
+ * lifecycle here: `transition` only covers the window in which the session is
+ * still opening sockets or tearing them down.
+ */
+function toMicPhase(
+  state: SessionState,
+  hasError: boolean,
+  transition: Transition,
+  mode: AppMode,
+): MicPhase {
+  if (transition === 'stop') return 'ending'
+  if (hasError) return 'error'
+  if (transition === 'start' && state === 'stopped') return 'connecting'
+  switch (state) {
+    case 'connecting':
+      return 'connecting'
+    case 'listening':
+      return 'listening'
+    case 'translating':
+      return 'translating'
+    case 'playing':
+      return 'playing'
+    default:
+      return mode === 'idle' ? 'idle' : 'ended'
+  }
 }
 
 export default function App() {
@@ -82,9 +105,11 @@ export default function App() {
     clearTranscript,
   } = useTranslationSession()
 
-  const [mode, setMode] = useState<AppMode>('idle')
-  const [retainedTurns, setRetainedTurns] = useState<ConversationTurn[]>([])
-  const [micBusy, setMicBusy] = useState(false)
+  const { theme, toggleTheme } = useTheme()
+
+  // The session keeps its committed history across a stop, so the conversation
+  // stays on screen by itself: nothing here needs to copy or retain it.
+  const [transition, setTransition] = useState<Transition>(null)
 
   const shellRef = useRef<HTMLDivElement>(null)
   const heroSlotRef = useRef<HTMLDivElement>(null)
@@ -107,79 +132,84 @@ export default function App() {
     controlRefs.current['clear'] = clearRef.current
   })
 
-  // Enter session mode the moment a start is requested; return to idle only
-  // when the transcript has been cleared.
-  useEffect(() => {
-    if (isActive) {
-      setMode('session')
-      return
-    }
-    if (state === 'stopped' && (turns.length > 0 || retainedTurns.length > 0)) {
-      setMode('ended')
-      return
-    }
-    if (state === 'error') {
-      setMode(turns.length > 0 || retainedTurns.length > 0 ? 'ended' : 'idle')
-      return
-    }
-    if (turns.length === 0 && retainedTurns.length === 0) {
-      setMode('idle')
-    }
-  }, [isActive, state, turns.length, retainedTurns.length])
-
-  // Keep a copy of the transcript when the session ends so it stays on screen.
-  useEffect(() => {
-    if (!isActive && turns.length > 0) {
-      setRetainedTurns(turns)
-    }
-  }, [isActive, turns])
-
-  const displayTurns = isActive || turns.length > 0 ? turns : retainedTurns
-  const showConversation = mode !== 'idle' && displayTurns.length > 0
-  const micPhase = toMicPhase(state, Boolean(error))
+  const live = isActive || transition !== null
+  const mode: AppMode = live ? 'session' : turns.length > 0 ? 'ended' : 'idle'
+  const micPhase = toMicPhase(state, Boolean(error), transition, mode)
   const leftCode = leftLanguage(sourceLanguage, counterpartLanguage)
 
-  const playingLanguage =
-    state === 'playing'
-      ? languageMetaFromCode(
-          displayTurns.at(-1)?.targetLanguage ?? targetLanguage,
-        ).label
-      : null
-  const playingColor =
-    state === 'playing'
-      ? languageColor(
-          displayTurns.at(-1)?.targetLanguage ?? targetLanguage,
-        )
-      : null
+  // While Lingua speaks, the turn being spoken owns the mic and waveform colour.
+  const playbackTarget =
+    state === 'playing' ? (turns.at(-1)?.targetLanguage ?? targetLanguage) : null
+  const playingLanguage = playbackTarget
+    ? languageMetaFromCode(playbackTarget).label
+    : null
+  const playingColor = playbackTarget ? languageColor(playbackTarget) : null
 
   const controlIds = useMemo(() => {
     if (mode === 'idle') {
       return ['source-language', 'swap', 'target-language', 'mic']
     }
-    if (mode === 'ended' || state === 'error') {
-      return ['mic', 'new-session', 'clear']
-    }
+    if (mode === 'ended') return ['mic', 'new-session', 'clear']
     return ['mic']
-  }, [mode, state])
+  }, [mode])
 
   useControlKeyboard({ controls: controlIds, controlRefs })
 
-  // One mic button travels between the hero slot and the dock slot.
+  /*
+    One microphone, two homes. The shell measures whichever slot the current
+    composition offers and moves the button there; CSS animates the journey.
+    The first placement is deliberately not animated — see `data-placed`.
+  */
   useLayoutEffect(() => {
     const mic = micRef.current
     const shell = shellRef.current
-    const slot =
-      mode === 'idle' ? heroSlotRef.current : dockSlotRef.current
-    if (!mic || !shell || !slot) return
+    if (!mic || !shell) return
 
-    const shellRect = shell.getBoundingClientRect()
-    const slotRect = slot.getBoundingClientRect()
-    const size = mode === 'idle' ? 104 : 56
+    // The font callback below can outlive this effect; a stale one would
+    // place the mic in the composition we have already left.
+    let cancelled = false
+    const place = () => {
+      if (cancelled) return
+      const slot = mode === 'idle' ? heroSlotRef.current : dockSlotRef.current
+      if (!slot) return
+      const shellRect = shell.getBoundingClientRect()
+      const slotRect = slot.getBoundingClientRect()
 
-    mic.style.width = `${size}px`
-    mic.style.height = `${size}px`
-    mic.style.transform = `translate(${slotRect.left - shellRect.left}px, ${slotRect.top - shellRect.top}px)`
-  }, [mode, state, showConversation, displayTurns.length])
+      // The slot's own size decides the mic's, so a CSS breakpoint that
+      // resizes a slot resizes the microphone with it.
+      mic.style.width = `${slotRect.width}px`
+      mic.style.height = `${slotRect.height}px`
+      mic.style.translate = `${slotRect.left - shellRect.left}px ${
+        slotRect.top - shellRect.top
+      }px`
+    }
+
+    place()
+
+    /*
+      The slot can still move after this first pass — loading the interface
+      font reflows the copy above it — and a ResizeObserver reports size, not
+      position, so it would never notice. Re-place on the next frame and again
+      once the fonts have settled, and only then allow the mic to animate:
+      until it has found its slot, every correction should be invisible.
+    */
+    const frame = requestAnimationFrame(() => {
+      place()
+      if (!mic.dataset.placed) {
+        void mic.offsetWidth
+        mic.dataset.placed = 'true'
+      }
+    })
+    void document.fonts?.ready.then(place)
+
+    const observer = new ResizeObserver(place)
+    observer.observe(shell)
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [mode, micPhase])
 
   const selectSourceLanguage = useCallback(
     (nextSource: SourceLanguageCode) => {
@@ -218,55 +248,57 @@ export default function App() {
     void setLanguages(targetLanguage, sourceLanguage)
   }, [setLanguages, sourceLanguage, targetLanguage])
 
-  async function handleMicClick() {
-    if (micBusy) return
-    setMicBusy(true)
-    try {
-      if (isActive) {
-        await stop()
-        return
+  /*
+    Start and stop are asynchronous, and the session serializes them against
+    each other. A tap arriving while one is still in flight is dropped here
+    rather than queued: `transitionRef` is set synchronously, so two taps in
+    the same tick cannot both get through, and it is cleared only when the
+    session's own promise settles — never on a timer.
+  */
+  const transitionRef = useRef<Transition>(null)
+  const runTransition = useCallback(
+    async (kind: Exclude<Transition, null>, action: () => Promise<void>) => {
+      if (transitionRef.current !== null) return
+      transitionRef.current = kind
+      setTransition(kind)
+      try {
+        await action()
+      } finally {
+        transitionRef.current = null
+        setTransition(null)
       }
-      setRetainedTurns([])
-      await start(sourceLanguage, targetLanguage)
-    } finally {
-      setMicBusy(false)
-    }
-  }
+    },
+    [],
+  )
 
-  async function handleNewSession() {
-    if (micBusy) return
-    setMicBusy(true)
-    try {
-      setRetainedTurns([])
-      await start(sourceLanguage, targetLanguage)
-    } finally {
-      setMicBusy(false)
-    }
-  }
+  const handleMicClick = useCallback(() => {
+    void runTransition(isActive ? 'stop' : 'start', () =>
+      isActive ? stop() : start(sourceLanguage, targetLanguage),
+    )
+  }, [isActive, runTransition, sourceLanguage, start, stop, targetLanguage])
 
-  function handleClear() {
-    clearTranscript()
-    setRetainedTurns([])
-    setMode('idle')
-  }
+  const handleNewSession = useCallback(() => {
+    void runTransition('start', () => start(sourceLanguage, targetLanguage))
+  }, [runTransition, sourceLanguage, start, targetLanguage])
+
+  const showConversation = mode !== 'idle' && turns.length > 0
 
   return (
-    <div
-      className={`app-shell mode-${mode}${showConversation ? ' has-conversation' : ''}`}
-      ref={shellRef}
-    >
+    <div className={`app-shell mode-${mode}`} ref={shellRef}>
       <TopBar
         session={mode !== 'idle'}
         leftCode={leftCode}
         rightCode={targetLanguage}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
 
-      <main className="app-main">
-        {error ? <StatusNotice error={error} /> : null}
+      {error ? <StatusNotice error={error} /> : null}
 
+      <main className="app-main">
         {showConversation ? (
           <Conversation
-            turns={displayTurns}
+            turns={turns}
             interimTranscript={isActive ? interimTranscript : null}
             leftCode={leftCode}
             rightCode={targetLanguage}
@@ -292,18 +324,19 @@ export default function App() {
           playingLanguage={playingLanguage}
           playingColor={playingColor}
           dockSlotRef={dockSlotRef}
+          busy={transition !== null}
           onNewSession={handleNewSession}
-          onClear={handleClear}
+          onClear={clearTranscript}
           newSessionRef={newSessionRef}
           clearRef={clearRef}
         />
       ) : null}
 
       <MicButton
-        phase={mode === 'idle' ? 'idle' : micPhase}
+        phase={micPhase}
         accentColor={playingColor}
-        disabled={micBusy}
-        label={micLabel(mode === 'idle' ? 'idle' : micPhase)}
+        disabled={transition !== null}
+        label={micLabel(micPhase)}
         buttonRef={micRef}
         onClick={handleMicClick}
       />

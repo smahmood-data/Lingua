@@ -1,102 +1,222 @@
-/* The microphone is the primary control. One button, two compositions:
-   the large centered hero on the idle canvas, and the smaller persistent
-   control in the session bar. The shell positions and sizes it; the face
-   below carries every visual state. */
+/*
+  The microphone is the primary control and the app's one piece of colour.
+  A single button serves two compositions — the hero on the home canvas and
+  the docked control during a conversation — and travels between them. The
+  shell owns its position and size; everything below is state.
+*/
 .mic-button {
+  --mic-accent-ink: color-mix(
+    in srgb,
+    var(--mic-accent, var(--accent)) calc(100% - var(--accent-lift)),
+    var(--ink)
+  );
+
   position: absolute;
   top: 0;
   left: 0;
   z-index: 30;
+  display: grid;
+  place-items: center;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: var(--paper-raised);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Only once the shell has measured its first slot: a mic that transitioned
+   from the top-left corner on load would be a magic trick, not a journey. */
+.mic-button[data-placed] {
+  transition:
+    translate var(--dur-travel) var(--ease-travel),
+    width var(--dur-travel) var(--ease-travel),
+    height var(--dur-travel) var(--ease-travel);
 }
 
 .mic-face {
   position: relative;
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 100%;
   height: 100%;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 50%;
-  background: var(--ink);
-  box-shadow: 0 10px 26px rgb(28 34 30 / 18%);
+  background: var(--mic-face);
+  color: var(--mic-ink);
+  box-shadow: var(--lift-mic);
   transition:
-    background-color 0.25s ease,
-    box-shadow 0.25s ease,
-    scale 0.18s ease;
-}
-
-.mic-face svg {
-  width: 36%;
-  height: 36%;
+    background-color var(--dur-med) var(--ease-out),
+    border-color var(--dur-med) var(--ease-out),
+    color var(--dur-med) var(--ease-out),
+    box-shadow var(--dur-med) var(--ease-out),
+    scale var(--dur-fast) var(--ease-out);
 }
 
 .mic-button:hover:not(:disabled) .mic-face {
-  scale: 1.045;
+  background: var(--accent-strong);
+  scale: 1.04;
 }
 
 .mic-button:active:not(:disabled) .mic-face {
   scale: 0.97;
 }
 
-/* Connecting: a thin ring turning around the face. No glow, no neon. */
-.mic-button[data-phase='connecting'] .mic-face::after {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  border: 2px solid transparent;
-  border-top-color: var(--accent);
+.mic-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
   border-radius: 50%;
-}
-
-/* Listening: a soft ring breathing around the mic — receptive, not loud. */
-.mic-button[data-phase='listening'] .mic-face::before {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  border: 2px solid var(--accent);
-  border-radius: 50%;
-  opacity: 0.35;
-}
-
-/* Playing: the ring takes the color of the language being spoken back. */
-.mic-button[data-phase='playing'] .mic-face::before {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  border: 2px solid var(--mic-accent, var(--accent));
-  border-radius: 50%;
-  opacity: 0.7;
-}
-
-/* Ended or failed: the mic goes quiet and light. */
-.mic-button[data-phase='ended'] .mic-face,
-.mic-button[data-phase='error'] .mic-face {
-  background: var(--paper-raised);
-  color: var(--ink);
-  border: 1px solid var(--line-strong);
-  box-shadow: 0 4px 14px rgb(28 34 30 / 8%);
 }
 
 .mic-button:disabled {
   cursor: default;
 }
 
+/* Microphone by default; the speaker takes over only while Lingua speaks. */
+.mic-glyph {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 160ms var(--ease-out);
+}
+
+.mic-glyph svg {
+  width: 36%;
+  height: 36%;
+}
+
+.glyph-mic {
+  opacity: 1;
+}
+
+.mic-button[data-phase='playing'] .glyph-mic {
+  opacity: 0;
+}
+
+.mic-button[data-phase='playing'] .glyph-speaker {
+  opacity: 1;
+}
+
+/* --- Halo: the soft ground the hero mic sits on ------------------------- */
+
+.mic-halo {
+  position: absolute;
+  inset: -52%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle closest-side,
+    color-mix(in srgb, var(--accent) 17%, transparent) 44%,
+    color-mix(in srgb, var(--accent) 7%, transparent) 64%,
+    transparent 84%
+  );
+  opacity: 0;
+  transition: opacity var(--dur-travel) var(--ease-out);
+  pointer-events: none;
+}
+
+.mic-button[data-phase='idle'] .mic-halo,
+.mic-button[data-phase='listening'] .mic-halo {
+  opacity: 1;
+}
+
+/* --- Ring: the one element that carries what the session is doing -------- */
+
+.mic-ring {
+  position: absolute;
+  inset: -7%;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  opacity: 0;
+  transition:
+    opacity var(--dur-med) var(--ease-out),
+    border-color var(--dur-med) var(--ease-out);
+  pointer-events: none;
+}
+
+/* Listening: a receptive ring, breathing with the halo. */
+.mic-button[data-phase='listening'] .mic-ring {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  opacity: 1;
+}
+
+/* Connecting: one arc making its way around. */
+.mic-button[data-phase='connecting'] .mic-ring {
+  border-top-color: var(--accent);
+  opacity: 1;
+}
+
+/* Translating: a quieter arc, turning more slowly than connecting. */
+.mic-button[data-phase='translating'] .mic-ring {
+  border-top-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  border-inline-end-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  opacity: 1;
+}
+
+/* Ending: the arc keeps turning, drained of colour, while sockets close. */
+.mic-button[data-phase='ending'] .mic-ring {
+  border-top-color: var(--line-strong);
+  opacity: 1;
+}
+
+.mic-button[data-phase='ending'] .mic-face {
+  background: color-mix(in srgb, var(--accent) 55%, var(--paper));
+}
+
+/* Playing: the ring takes the colour of the language being spoken back. */
+.mic-button[data-phase='playing'] .mic-ring {
+  border-color: var(--mic-accent-ink);
+  opacity: 0.8;
+}
+
+.mic-button[data-phase='playing'] .mic-face {
+  background: var(--mic-accent-ink);
+}
+
+/* Ended or failed: the mic goes quiet, and the labelled actions lead. */
+.mic-button[data-phase='ended'] .mic-face,
+.mic-button[data-phase='error'] .mic-face {
+  border-color: var(--line-strong);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  box-shadow: var(--lift-mic-quiet);
+}
+
+.mic-button[data-phase='ended']:hover:not(:disabled) .mic-face,
+.mic-button[data-phase='error']:hover:not(:disabled) .mic-face {
+  border-color: var(--accent-line);
+  background: var(--paper-raised);
+  color: var(--accent-ink);
+}
+
+.mic-button[data-phase='error'] .mic-ring {
+  border-color: color-mix(in srgb, var(--danger-ink) 40%, transparent);
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .mic-button[data-phase='connecting'] .mic-face::after {
+  .mic-button[data-phase='idle'] .mic-halo,
+  .mic-button[data-phase='listening'] .mic-halo {
+    animation: mic-halo-breathe 3.4s ease-in-out infinite;
+  }
+
+  .mic-button[data-phase='listening'] .mic-ring {
+    animation: mic-ring-breathe 2.8s ease-in-out infinite;
+  }
+
+  .mic-button[data-phase='connecting'] .mic-ring {
     animation: mic-spin 0.85s linear infinite;
   }
 
-  .mic-button[data-phase='listening'] .mic-face::before {
-    animation: mic-breathe 2.8s ease-in-out infinite;
+  .mic-button[data-phase='translating'] .mic-ring,
+  .mic-button[data-phase='ending'] .mic-ring {
+    animation: mic-spin 1.5s linear infinite;
   }
 
-  .mic-button[data-phase='playing'] .mic-face::before {
-    animation: mic-breathe 1.6s ease-in-out infinite;
+  .mic-button[data-phase='playing'] .mic-ring {
+    animation: mic-pulse 1.5s var(--ease-out) infinite;
   }
 
   @keyframes mic-spin {
@@ -105,15 +225,50 @@
     }
   }
 
-  @keyframes mic-breathe {
+  @keyframes mic-halo-breathe {
     0%,
     100% {
-      opacity: 0.25;
+      opacity: 0.75;
+      scale: 0.97;
+    }
+    50% {
+      opacity: 1;
+      scale: 1.03;
+    }
+  }
+
+  @keyframes mic-ring-breathe {
+    0%,
+    100% {
+      opacity: 0.45;
       scale: 1;
     }
     50% {
-      opacity: 0.6;
-      scale: 1.035;
+      opacity: 0.95;
+      scale: 1.05;
     }
+  }
+
+  @keyframes mic-pulse {
+    0% {
+      opacity: 0.75;
+      scale: 1;
+    }
+    100% {
+      opacity: 0;
+      scale: 1.34;
+    }
+  }
+}
+
+/* Reduced motion: the mic still arrives where it belongs, just without the
+   journey, and every state stays readable from colour alone. */
+@media (prefers-reduced-motion: reduce) {
+  .mic-button[data-placed] {
+    transition: none;
+  }
+
+  .mic-button[data-phase='playing'] .mic-ring {
+    opacity: 1;
   }
 }

@@ -1,104 +1,156 @@
-/* The header belongs to the same canvas: no divider, no background change,
-   just the wordmark and — during a conversation — the pair being interpreted. */
-.topbar {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+/* The masthead sits on the same paper as everything else: centred, quiet,
+   no divider and no background of its own. */
+.masthead {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 16px clamp(20px, 4vw, 44px) 10px;
+  gap: 11px;
+  padding: clamp(16px, 2.8vh, 26px) 20px 0;
 }
 
-.brand {
+/* One lockup: the lām carries the L, the stem carries the rest of the name. */
+.wordmark {
   display: flex;
   align-items: baseline;
-  gap: 9px;
-  min-width: 0;
-}
-
-.brand-mark {
-  color: var(--accent);
-  font-family: var(--font-urdu);
-  font-size: 1.55rem;
-  line-height: 1;
-  translate: 0 3px;
-}
-
-.brand-name {
+  gap: 1px;
   color: var(--ink);
   font-family: var(--font-brand);
-  font-size: 1.28rem;
+  font-size: clamp(1.34rem, 1.2rem + 0.6vw, 1.62rem);
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.006em;
+  line-height: 1;
+  /* Nastaliq hangs the lām well below the baseline. Without room reserved for
+     that tail the next line sits inside it — which is exactly what the pair
+     row was doing. */
+  padding-bottom: 0.28em;
+  user-select: none;
 }
 
-.topbar-context {
-  color: var(--ink-mute);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  white-space: nowrap;
+.wordmark-lam {
+  font-family: var(--font-urdu);
+  font-size: 1.5em;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--accent);
+  translate: 0 0.1em;
 }
 
-.topbar-pair {
+.wordmark-stem {
+  margin-inline-start: 0.02em;
+}
+
+/*
+  The pair under the wordmark. Two equal columns either side of the exchange
+  glyph put that glyph on the centre line no matter how long the two language
+  names are — "Detecting…" and "English" must not shift the axis.
+*/
+.masthead-pair {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 7px;
-  min-width: 0;
+  justify-content: center;
+  gap: 10px;
+  max-width: min(100%, 560px);
   color: var(--ink-soft);
   font-size: 0.85rem;
   font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+.pair-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
+}
+
+.pair-side > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pair-dot {
   flex: none;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
+  /* Accents are picked to read on paper; on the dark canvas they are lifted
+     toward the text colour so they keep the same presence. */
+  background: color-mix(
+    in srgb,
+    var(--pair-accent) calc(100% - var(--accent-lift)),
+    var(--ink)
+  );
 }
 
-.pair-swap {
+.pair-glyph {
   flex: none;
-  margin: 0 2px;
   color: var(--ink-mute);
+  opacity: 0.75;
+}
+
+/* --- Theme toggle -------------------------------------------------------- */
+
+/*
+  Taken out of the flow entirely so it can never push the wordmark off the
+  centre line.
+*/
+.theme-toggle {
+  position: absolute;
+  top: clamp(14px, 2.4vh, 22px);
+  inset-inline-end: clamp(14px, 2.5vw, 28px);
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-mute);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.theme-toggle:hover {
+  border-color: var(--line-strong);
+  background: var(--paper-raised);
+  color: var(--ink);
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .topbar-context,
-  .topbar-pair {
-    animation: topbar-in 0.4s ease-out;
+  .masthead-pair {
+    animation: pair-in var(--dur-med) var(--ease-out) backwards;
   }
 
-  @keyframes topbar-in {
+  @keyframes pair-in {
     from {
       opacity: 0;
+      translate: 0 -3px;
     }
     to {
       opacity: 1;
+      translate: 0 0;
     }
   }
 }
 
 @media (max-width: 560px) {
-  .topbar {
-    gap: 10px;
+  .masthead {
+    gap: 9px;
+    padding-top: 14px;
   }
 
-  .topbar-context {
-    display: none;
-  }
-
-  .topbar-pair {
+  .masthead-pair {
     font-size: 0.78rem;
   }
 
-  .brand-name {
-    font-size: 1.12rem;
-  }
-
-  .brand-mark {
-    font-size: 1.35rem;
+  .theme-toggle {
+    width: 30px;
+    height: 30px;
   }
 }

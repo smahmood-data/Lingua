@@ -1,8 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
-import type {
-  ConversationTurn,
-  InterimTranscript,
-} from '../lib/translation'
+import type { ConversationTurn, InterimTranscript } from '../lib/translation'
 import {
   languageCodesMatch,
   languageMetaFromCode,
@@ -14,26 +11,28 @@ import './Conversation.css'
 type Side = 'left' | 'right'
 
 /**
- * Which participant said this turn. The language a turn was interpreted *into*
- * names the listener, so the speaker sits on the other side of the canvas.
- * Falls back to the spoken language when a turn never needed interpreting.
+ * Which participant said this turn.
+ *
+ * The spoken language answers it directly. Before that is known, the language
+ * the turn is being rendered *into* names the listener, so the speaker is the
+ * other side of the conversation.
  */
 function turnSide(
-  turn: ConversationTurn,
+  turn: Pick<ConversationTurn, 'sourceLanguage' | 'targetLanguage'>,
   leftCode: string | null,
   rightCode: string,
 ): Side {
-  if (turn.targetLanguage) {
-    if (languageCodesMatch(turn.targetLanguage, rightCode)) return 'left'
-    if (leftCode && languageCodesMatch(turn.targetLanguage, leftCode)) {
-      return 'right'
-    }
-  }
   if (turn.sourceLanguage) {
     if (leftCode && languageCodesMatch(turn.sourceLanguage, leftCode)) {
       return 'left'
     }
     if (languageCodesMatch(turn.sourceLanguage, rightCode)) return 'right'
+  }
+  if (turn.targetLanguage) {
+    if (languageCodesMatch(turn.targetLanguage, rightCode)) return 'left'
+    if (leftCode && languageCodesMatch(turn.targetLanguage, leftCode)) {
+      return 'right'
+    }
   }
   return 'left'
 }
@@ -43,108 +42,97 @@ function scriptClass(code: string): string {
   return languageCodesMatch(code, 'ur') ? ' urdu-text' : ''
 }
 
+/** What the live marker on an unfinished turn says. */
+function liveLabel(status: ConversationTurn['status']): string | null {
+  switch (status) {
+    case 'speaking':
+      return 'Listening'
+    case 'translating':
+      return 'Translating'
+    case 'playing':
+      return 'Playing'
+    default:
+      return null
+  }
+}
+
 function Turn({
   turn,
-  index,
-  fallbackTarget,
+  side,
+  interim,
 }: {
   turn: ConversationTurn
-  index: number
-  fallbackTarget: string
+  side: Side
+  /** Live caption, used only while the open turn has no words of its own. */
+  interim: InterimTranscript | null
 }) {
-  const source = languageMetaFromCode(turn.sourceLanguage ?? 'und')
-  const target = languageMetaFromCode(turn.targetLanguage ?? fallbackTarget)
   const live = turn.status !== 'complete'
+  const sourceCode = turn.sourceLanguage ?? interim?.languageCode ?? null
+  const source = sourceCode ? languageMetaFromCode(sourceCode) : null
+  const target = turn.targetLanguage
+    ? languageMetaFromCode(turn.targetLanguage)
+    : null
+
+  const sourceText = turn.sourceText || interim?.text || ''
+  const provisional = !turn.sourceText && Boolean(interim?.text)
+  const marker = live ? liveLabel(turn.status) : null
 
   return (
     <article
       className="turn"
+      data-side={side}
       data-live={live || undefined}
-      style={{ '--turn-index': Math.min(index, 12) } as CSSProperties}
-      aria-label={`${source.label} speaker`}
+      style={
+        {
+          '--speaker-accent': sourceCode
+            ? languageColor(sourceCode)
+            : 'var(--ink-mute)',
+          '--translation-accent': turn.targetLanguage
+            ? languageColor(turn.targetLanguage)
+            : 'var(--ink-mute)',
+        } as CSSProperties
+      }
     >
-      <p
-        className={`turn-source${scriptClass(source.code)}`}
-        lang={source.htmlLang || undefined}
-        dir={source.isRtl ? 'rtl' : 'ltr'}
-      >
-        {turn.sourceText}
-      </p>
+      <header className="turn-who">
+        <span className="turn-dot" aria-hidden="true" />
+        <span className="turn-who-name" lang={source?.htmlLang || undefined}>
+          {source ? `${source.label} speaker` : 'Detecting language'}
+        </span>
+        {marker ? (
+          <span className="turn-live">
+            <span className="turn-live-dot" aria-hidden="true" />
+            {marker}
+          </span>
+        ) : null}
+      </header>
 
-      {turn.translatedText ? (
-        <div
-          className="turn-translation"
-          style={
-            { '--translation-color': languageColor(target.code) } as CSSProperties
-          }
+      {sourceText ? (
+        <p
+          className={`turn-said${provisional ? ' turn-said-provisional' : ''}${scriptClass(source?.code ?? '')}`}
+          lang={source?.htmlLang || undefined}
+          dir={source?.isRtl ? 'rtl' : 'ltr'}
         >
-          <p className="turn-translation-label">{target.label} translation</p>
+          {sourceText}
+        </p>
+      ) : null}
+
+      {turn.translatedText && target ? (
+        <div className="turn-into">
+          <p className="turn-into-label">{target.label} translation</p>
           <p
-            className={`turn-translated${scriptClass(target.code)}`}
+            className={`turn-heard${scriptClass(target.code)}`}
             lang={target.htmlLang || undefined}
             dir={target.isRtl ? 'rtl' : 'ltr'}
           >
             {turn.translatedText}
           </p>
         </div>
+      ) : live && turn.status === 'translating' ? (
+        <div className="turn-into">
+          <span className="turn-pending" aria-hidden="true" />
+        </div>
       ) : null}
     </article>
-  )
-}
-
-function Column({
-  side,
-  languageCode,
-  speakerLabel,
-  turns,
-  interim,
-  fallbackTarget,
-}: {
-  side: Side
-  /** `null` while Auto has not yet learned this side's language. */
-  languageCode: SupportedLanguageCode | null
-  speakerLabel: string
-  turns: { turn: ConversationTurn; index: number }[]
-  interim: InterimTranscript | null
-  fallbackTarget: string
-}) {
-  const meta = languageCode ? languageMetaFromCode(languageCode) : null
-  const color = languageCode ? languageColor(languageCode) : null
-
-  return (
-    <div
-      className={`column column-${side}`}
-      style={{ '--column-color': color ?? 'var(--ink-mute)' } as CSSProperties}
-    >
-      <header className="column-header">
-        <span className="column-dot" aria-hidden="true" />
-        <h3 className="column-language" lang={meta?.htmlLang || undefined}>
-          {meta?.label ?? 'Auto-detect'}
-        </h3>
-        <span className="column-speaker">{speakerLabel}</span>
-      </header>
-
-      <ol className="column-turns">
-        {turns.map(({ turn, index }) => (
-          <li key={turn.id}>
-            <Turn turn={turn} index={index} fallbackTarget={fallbackTarget} />
-          </li>
-        ))}
-        {interim ? (
-          <li className="turn-ghost" aria-label="Listening">
-            <p
-              className="turn-source"
-              lang={interim.languageCode || undefined}
-            >
-              {interim.text}
-              <span className="ghost-tail" aria-hidden="true">
-                …
-              </span>
-            </p>
-          </li>
-        ) : null}
-      </ol>
-    </div>
   )
 }
 
@@ -158,10 +146,11 @@ type Props = {
 }
 
 /**
- * The conversation uses the full canvas as two people talking: one language
- * per side, each turn sitting with its speaker, its interpretation attached
- * beneath it. Newest content keeps itself in view unless the reader has
- * scrolled back into the history.
+ * The conversation uses the whole canvas as two people talking: one lane per
+ * participant, every turn sitting with whoever said it, its interpretation
+ * attached underneath. Turns stay in the order they were spoken — a reply must
+ * never appear above the line it answers — so the two lanes read as one
+ * conversation rather than two parallel transcripts.
  */
 export function Conversation({
   turns,
@@ -169,35 +158,22 @@ export function Conversation({
   leftCode,
   rightCode,
 }: Props) {
-  const columns: Record<Side, { turn: ConversationTurn; index: number }[]> = {
-    left: [],
-    right: [],
-  }
-  turns.forEach((turn, index) => {
-    columns[turnSide(turn, leftCode, rightCode)].push({ turn, index })
-  })
+  const openTurn = turns.findLast((turn) => turn.status !== 'complete')
+  // The live caption belongs to the open turn until that turn has words of its
+  // own; with no open turn at all it trails the thread as a ghost.
+  const captionForOpenTurn =
+    openTurn && !openTurn.sourceText ? interimTranscript : null
+  const ghost = !openTurn && interimTranscript?.text ? interimTranscript : null
 
-  let interimSide: Side | null = null
-  if (interimTranscript) {
-    interimSide =
-      leftCode &&
-      languageCodesMatch(interimTranscript.languageCode, leftCode)
-        ? 'left'
-        : languageCodesMatch(interimTranscript.languageCode, rightCode)
-          ? 'right'
-          : columns.left.length <= columns.right.length
-            ? 'left'
-            : 'right'
-  }
-
+  const scrollerRef = useRef<HTMLElement | null>(null)
   const sectionRef = useRef<HTMLElement>(null)
-  const endRef = useRef<HTMLDivElement>(null)
   const stickToEndRef = useRef(true)
 
   // Follow the conversation only while the reader is already at the end.
   useEffect(() => {
     const scroller = sectionRef.current?.closest('.app-main')
-    if (!scroller) return
+    if (!(scroller instanceof HTMLElement)) return
+    scrollerRef.current = scroller
     const onScroll = () => {
       stickToEndRef.current =
         scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140
@@ -207,9 +183,17 @@ export function Conversation({
     return () => scroller.removeEventListener('scroll', onScroll)
   }, [])
 
+  /*
+    Scroll the container itself rather than an element into view: the room
+    reserved for the session bar is the scroller's own bottom padding, so
+    running to the end is what puts the newest turn clear of the bar. Jumping
+    rather than gliding is deliberate — a live caption updates many times a
+    second, and a smooth scroll restarted that often is just jitter.
+  */
   useEffect(() => {
-    if (!stickToEndRef.current) return
-    endRef.current?.scrollIntoView({ block: 'end' })
+    const scroller = scrollerRef.current
+    if (!scroller || !stickToEndRef.current) return
+    scroller.scrollTop = scroller.scrollHeight
   }, [turns, interimTranscript])
 
   return (
@@ -218,25 +202,44 @@ export function Conversation({
       aria-label="Conversation transcript"
       ref={sectionRef}
     >
-      <div className="conversation-columns">
-        <Column
-          side="left"
-          languageCode={leftCode}
-          speakerLabel="Speaker A"
-          turns={columns.left}
-          interim={interimSide === 'left' ? interimTranscript : null}
-          fallbackTarget={rightCode}
-        />
-        <Column
-          side="right"
-          languageCode={rightCode}
-          speakerLabel="Speaker B"
-          turns={columns.right}
-          interim={interimSide === 'right' ? interimTranscript : null}
-          fallbackTarget={rightCode}
-        />
-      </div>
-      <div className="conversation-end" ref={endRef} aria-hidden="true" />
+      <ol className="thread">
+        {turns.map((turn) => (
+          <li key={turn.id} className="thread-row">
+            <Turn
+              turn={turn}
+              side={turnSide(turn, leftCode, rightCode)}
+              interim={turn === openTurn ? captionForOpenTurn : null}
+            />
+          </li>
+        ))}
+
+        {ghost ? (
+          <li className="thread-row">
+            <article
+              className="turn turn-ghost"
+              data-side={turnSide(
+                { sourceLanguage: ghost.languageCode, targetLanguage: null },
+                leftCode,
+                rightCode,
+              )}
+              style={
+                {
+                  '--speaker-accent': ghost.languageCode
+                    ? languageColor(ghost.languageCode)
+                    : 'var(--ink-mute)',
+                } as CSSProperties
+              }
+              aria-label="Listening"
+            >
+              <header className="turn-who">
+                <span className="turn-dot" aria-hidden="true" />
+                <span className="turn-who-name">Listening</span>
+              </header>
+              <p className="turn-said turn-said-provisional">{ghost.text}</p>
+            </article>
+          </li>
+        ) : null}
+      </ol>
     </section>
   )
 }

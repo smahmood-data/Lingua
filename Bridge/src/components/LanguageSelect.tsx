@@ -12,11 +12,16 @@ import {
   supportedLanguages,
   type SourceLanguageCode,
 } from '../types'
-import { languageColor, nativeLanguageName } from '../languageDisplay'
+import { nativeLanguageName } from '../languageDisplay'
+import { LanguageFlag } from './LanguageFlag'
 import './LanguageSelect.css'
 
 type Props = {
-  /** Short caption above the value, e.g. "From". */
+  /**
+   * Names the control for assistive technology — "Speak or detect language".
+   * It is not shown: on screen the two triggers either side of the exchange
+   * glyph already say what the pair is.
+   */
   label: string
   value: SourceLanguageCode
   /** Whether per-utterance automatic detection is offered as an option. */
@@ -30,11 +35,12 @@ type Option = {
   label: string
   /** Native name, or the auto option's short description. */
   detail: string | null
-  /** Accent color; `null` for Auto-detect. */
-  color: string | null
   /** Script the detail is written in, for correct rendering. */
   detailLang?: string
 }
+
+/** Roughly how tall the menu can get, for deciding which way it opens. */
+const MENU_MAX_HEIGHT = 300
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -60,22 +66,17 @@ function Chevron({ open }: { open: boolean }) {
 function AutoGlyph() {
   return (
     <svg
-      className="language-auto-glyph"
-      width="15"
-      height="15"
-      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      viewBox="0 0 18 18"
       fill="none"
       aria-hidden="true"
     >
       <path
-        d="M8 1.5 9.4 5.6l4.1 1.4-4.1 1.4L8 12.5 6.6 8.4 2.5 7l4.1-1.4L8 1.5Z"
+        d="M3 7.5v3M6 5v8M9 2.5v13M12 5v8M15 7.5v3"
         stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      <path
-        d="m12.7 10.8.6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6.6-1.7Z"
-        fill="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
       />
     </svg>
   )
@@ -85,8 +86,8 @@ function CheckGlyph() {
   return (
     <svg
       className="language-check"
-      width="14"
-      height="14"
+      width="15"
+      height="15"
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden="true"
@@ -103,11 +104,26 @@ function CheckGlyph() {
 }
 
 /**
+ * A language's mark: its flag. Auto-detect gets a level meter instead, because
+ * it stands for listening rather than for any one language.
+ */
+function LanguageMark({ option }: { option: Option }) {
+  if (option.code === AUTO_SOURCE_LANGUAGE) {
+    return (
+      <span className="language-token token-auto" aria-hidden="true">
+        <AutoGlyph />
+      </span>
+    )
+  }
+  return <LanguageFlag code={option.code} />
+}
+
+/**
  * A language picker in the shape of a listbox button: the trigger shows the
- * language's accent, English label, and native name; the menu lists every
+ * language's badge, English label, and native name; the menu lists every
  * supported language the same way. Focus never leaves the trigger — arrow
  * keys move `aria-activedescendant` — so the control behaves like the native
- * select it replaces.
+ * select it replaces, and typing jumps to a language the way one does.
  */
 export function LanguageSelect({
   label,
@@ -126,7 +142,6 @@ export function LanguageSelect({
       code: language.code,
       label: language.label,
       detail: nativeLanguageName(language.code),
-      color: languageColor(language.code),
       detailLang: language.code,
     }))
     if (!allowAuto) return languages
@@ -134,8 +149,7 @@ export function LanguageSelect({
       {
         code: AUTO_SOURCE_LANGUAGE,
         label: 'Auto-detect',
-        detail: 'Detect each speaker’s language',
-        color: null,
+        detail: 'Detects the spoken language',
       },
       ...languages,
     ]
@@ -148,6 +162,7 @@ export function LanguageSelect({
   const selected = options[selectedIndex]
 
   const [open, setOpen] = useState(false)
+  const [placement, setPlacement] = useState<'below' | 'above'>('below')
   const [activeIndex, setActiveIndex] = useState(selectedIndex)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLUListElement>(null)
@@ -155,6 +170,12 @@ export function LanguageSelect({
   const typeaheadTimerRef = useRef<number | undefined>(undefined)
 
   function openMenu(index = selectedIndex) {
+    // Open upward when the trigger sits too low for the menu to fit below it.
+    const rect = rootRef.current?.getBoundingClientRect()
+    if (rect) {
+      const below = window.innerHeight - rect.bottom
+      setPlacement(below < MENU_MAX_HEIGHT + 16 && rect.top > below ? 'above' : 'below')
+    }
     setActiveIndex(index)
     setOpen(true)
   }
@@ -217,10 +238,19 @@ export function LanguageSelect({
       event.stopPropagation()
     }
     const isPrintable =
-      key.length === 1 && /\S/.test(key) && !event.metaKey && !event.ctrlKey && !event.altKey
+      key.length === 1 &&
+      /\S/.test(key) &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey
 
     if (!open) {
-      if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Enter' || key === ' ') {
+      if (
+        key === 'ArrowDown' ||
+        key === 'ArrowUp' ||
+        key === 'Enter' ||
+        key === ' '
+      ) {
         handled()
         openMenu()
       } else if (isPrintable) {
@@ -277,6 +307,10 @@ export function LanguageSelect({
 
   return (
     <div className="language-select" ref={rootRef}>
+      <span className="sr-only" id={labelId}>
+        {label}
+      </span>
+
       <button
         type="button"
         className="language-trigger"
@@ -288,27 +322,14 @@ export function LanguageSelect({
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={handleKeyDown}
       >
-        <span className="language-trigger-text">
-          <span className="language-trigger-label" id={labelId}>
-            {label}
-          </span>
-          <span className="language-trigger-value" id={valueId}>
-            {selected.color ? (
-              <span
-                className="language-dot"
-                style={{ background: selected.color }}
-                aria-hidden="true"
-              />
-            ) : (
-              <AutoGlyph />
-            )}
-            <span className="language-name">{selected.label}</span>
-            {selected.color && selected.detail ? (
-              <span className="language-native" lang={selected.detailLang}>
-                {selected.detail}
-              </span>
-            ) : null}
-          </span>
+        <LanguageMark option={selected} />
+        <span className="language-value" id={valueId}>
+          <span className="language-name">{selected.label}</span>
+          {selected.code !== AUTO_SOURCE_LANGUAGE && selected.detail ? (
+            <span className="language-native" lang={selected.detailLang}>
+              {selected.detail}
+            </span>
+          ) : null}
         </span>
         <Chevron open={open} />
       </button>
@@ -316,6 +337,7 @@ export function LanguageSelect({
       {open ? (
         <ul
           className="language-menu"
+          data-placement={placement}
           role="listbox"
           aria-labelledby={labelId}
           ref={menuRef}
@@ -338,15 +360,7 @@ export function LanguageSelect({
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => selectOption(index)}
             >
-              {option.color ? (
-                <span
-                  className="language-dot"
-                  style={{ background: option.color }}
-                  aria-hidden="true"
-                />
-              ) : (
-                <AutoGlyph />
-              )}
+              <LanguageMark option={option} />
               <span className="option-text">
                 <span className="option-label">{option.label}</span>
                 {option.detail ? (

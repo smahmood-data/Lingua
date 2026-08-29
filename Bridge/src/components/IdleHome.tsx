@@ -1,4 +1,4 @@
-import type { Ref } from 'react'
+import { useState, type Ref } from 'react'
 import {
   AUTO_SOURCE_LANGUAGE,
   languageMetaFromCode,
@@ -7,6 +7,20 @@ import {
 } from '../types'
 import { LanguageSelect } from './LanguageSelect'
 import './IdleHome.css'
+
+/*
+  The same greeting every time reads like a sign rather than an invitation.
+  One is chosen when the home canvas mounts — a fresh visit, or returning here
+  after clearing a conversation — and then held, so nothing swaps under the
+  reader's eyes. They are the same length and tone on purpose: the line sits
+  above the language pair, and the layout must not move between them.
+*/
+const GREETINGS = [
+  'Ready when you are',
+  'Whenever you’re ready',
+  'Go ahead',
+  'Start when you’re ready',
+] as const
 
 function SwapGlyph() {
   return (
@@ -42,9 +56,10 @@ type Props = {
 }
 
 /**
- * The home canvas: the microphone as hero, a one-line invitation, and the
- * language pair living on the same screen. The pair is a conversation between
- * two languages, not a one-way route — hence the swap control between them.
+ * The home canvas: the microphone as hero, a single line inviting you to use
+ * it, and the language pair on the same screen rather than behind a setup
+ * step. The pair is a conversation between two languages, not a one-way
+ * route — hence the swap between them.
  */
 export function IdleHome({
   sourceLanguage,
@@ -62,63 +77,63 @@ export function IdleHome({
       ? null
       : languageMetaFromCode(sourceLanguage)
   const target = languageMetaFromCode(targetLanguage)
+  const autoSource = sourceLanguage === AUTO_SOURCE_LANGUAGE
+  const [greeting] = useState(
+    () => GREETINGS[Math.floor(Math.random() * GREETINGS.length)],
+  )
 
   return (
     <div className="idle-home">
       <div className="idle-hero">
         <div className="mic-slot mic-slot-hero" ref={heroSlotRef} />
-        <h2 className="idle-title">Ready when you are</h2>
+        <h2 className="idle-title">{greeting}</h2>
         <p className="idle-subtitle">
-          Press the microphone and speak naturally.{' '}
           {source ? (
             <>
-              Lingua interprets between{' '}
+              Tap the microphone and speak — Lingua interprets between{' '}
               <span lang={source.htmlLang}>{source.label}</span> and{' '}
-              <span lang={target.htmlLang}>{target.label}</span> in real time.
+              <span lang={target.htmlLang}>{target.label}</span>, both ways.
             </>
           ) : (
-            'Lingua detects each speaker’s language and translates both ways in real time.'
+            <>
+              Tap the microphone and speak — Lingua hears the language, and
+              interprets it into <span lang={target.htmlLang}>{target.label}</span>.
+            </>
           )}
         </p>
       </div>
 
       <div className="language-setup">
-        <p className="language-setup-label">Language setup</p>
-        <div className="language-selectors">
-          <LanguageSelect
-            label="From"
-            value={sourceLanguage}
-            allowAuto
-            onChange={onSelectSourceLanguage}
-            buttonRef={sourceSelectRef}
-          />
-          <button
-            type="button"
-            className="language-swap"
-            ref={swapRef}
-            onClick={onSwapLanguages}
-            disabled={sourceLanguage === AUTO_SOURCE_LANGUAGE}
-            aria-label="Swap languages"
-            title={
-              sourceLanguage === AUTO_SOURCE_LANGUAGE
-                ? 'Choose a language to swap the pair'
-                : 'Swap languages'
-            }
-          >
-            <SwapGlyph />
-          </button>
-          <LanguageSelect
-            label="To"
-            value={targetLanguage}
-            onChange={(code) => onSelectTargetLanguage(code as SupportedLanguageCode)}
-            buttonRef={targetSelectRef}
-          />
-        </div>
-        <p className="language-summary">
-          {source?.label ?? 'Auto-detect'} ↔ {target.label}
-          <span aria-hidden="true"> · </span>
-          Ready for conversation
-        </p>
+        <LanguageSelect
+          label="Speak or detect language"
+          value={sourceLanguage}
+          allowAuto
+          onChange={onSelectSourceLanguage}
+          buttonRef={sourceSelectRef}
+        />
+        <button
+          type="button"
+          className="language-swap"
+          ref={swapRef}
+          onClick={onSwapLanguages}
+          disabled={autoSource}
+          aria-label="Swap the two languages"
+          title={
+            autoSource
+              ? 'Choose a language to swap the pair'
+              : 'Swap the two languages'
+          }
+        >
+          <SwapGlyph />
+        </button>
+        <LanguageSelect
+          label="Language to translate into"
+          value={targetLanguage}
+          onChange={(code) =>
+            onSelectTargetLanguage(code as SupportedLanguageCode)
+          }
+          buttonRef={targetSelectRef}
+        />
       </div>
     </div>
   )

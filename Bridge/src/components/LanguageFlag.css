@@ -1,0 +1,36 @@
+/*
+  A flag reads as an object on the page, so it gets a hairline rim rather than
+  floating edge-to-edge — that is also what keeps a white or pale field (Japan,
+  Finland, Poland) from dissolving into the surface behind it.
+*/
+.language-flag {
+  display: block;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 14%);
+  overflow: hidden;
+}
+
+.language-flag svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Languages with no conventional single region keep a quiet globe. */
+.flag-globe {
+  display: grid;
+  place-items: center;
+  color: var(--ink-mute);
+  box-shadow: none;
+}
+
+:root[data-theme='dark'] .language-flag {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 16%);
+}
+
+:root[data-theme='dark'] .flag-globe {
+  box-shadow: none;
+}
