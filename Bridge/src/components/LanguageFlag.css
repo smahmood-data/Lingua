@@ -19,7 +19,7 @@
   height: 100%;
 }
 
-/* Languages with no conventional single region keep a quiet globe. */
+/* Unknown language codes keep a quiet globe as a defensive fallback. */
 .flag-globe {
   display: grid;
   place-items: center;

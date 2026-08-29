@@ -8,10 +8,9 @@
  * crisp at any size, and costs no network request or font.
  *
  * Shapes are simplified for a 24px disc: the layout and colours of a flag are
- * what identify it at that size, not its coat of arms. A language only gets a
- * flag where one region is genuinely conventional for it; languages spoken
- * across many countries with no such convention get a neutral globe instead,
- * because a flag that misrepresents its speakers is worse than no flag.
+ * what identify it at that size, not its coat of arms. Regional flags are used
+ * where they identify a language more clearly than a country flag; otherwise
+ * each supported language is mapped to a familiar representative country.
  */
 
 export type FlagLayer =
@@ -99,6 +98,19 @@ const FLAGS: Record<string, Flag> = {
       ['#A51931', 1],
     ),
   ],
+  CATALONIA: [
+    h(
+      '#FCDD09',
+      '#DA121A',
+      '#FCDD09',
+      '#DA121A',
+      '#FCDD09',
+      '#DA121A',
+      '#FCDD09',
+      '#DA121A',
+      '#FCDD09',
+    ),
+  ],
 
   // --- Stripes with a mark ------------------------------------------------
   JP: [solid('#FFFFFF'), { kind: 'disc', fill: '#BC002D', cx: 12, cy: 12, r: 6 }],
@@ -145,6 +157,14 @@ const FLAGS: Record<string, Flag> = {
     h('#0092BC', '#E4002B', '#00AE65'),
     { kind: 'crescent', fill: '#FFFFFF', bg: '#E4002B', cx: 11, cy: 12, r: 3.2 },
   ],
+  SA: [
+    solid('#006C35'),
+    {
+      kind: 'path',
+      fill: '#FFFFFF',
+      d: 'M5 6.2h2.2v1.4H5Zm3.1 0h4.2v1.4H8.1Zm5.1 0H19v1.4h-5.8ZM6.2 8.7h3.1v1.4H6.2Zm4 0H18v1.4h-7.8ZM5.2 11.2h4.6v1.4H5.2Zm5.6 0h7v1.4h-7ZM5 16.1h12.8l1.2-1v1.8l-1.2.7H5Zm1.2 1.5h1.5v1.1H6.2Z',
+    },
+  ],
 
   // --- Crosses ------------------------------------------------------------
   DK: nordic('#C60C30', '#FFFFFF'),
@@ -156,6 +176,12 @@ const FLAGS: Record<string, Flag> = {
     solid('#FFFFFF'),
     { kind: 'rect', fill: '#FF0000', x: 10, y: 0, w: 4, h: 24 },
     { kind: 'rect', fill: '#FF0000', x: 0, y: 10, w: 24, h: 4 },
+  ],
+  BASQUE: [
+    solid('#D52B1E'),
+    { kind: 'path', fill: '#008C51', d: 'M0 0h4l20 20v4h-4L0 4Zm20 0h4v4L4 24H0v-4Z' },
+    { kind: 'rect', fill: '#FFFFFF', x: 10, y: 0, w: 4, h: 24 },
+    { kind: 'rect', fill: '#FFFFFF', x: 0, y: 10, w: 24, h: 4 },
   ],
 
   // --- Cantons and panels -------------------------------------------------
@@ -240,21 +266,65 @@ const FLAGS: Record<string, Flag> = {
     { kind: 'rect', fill: '#FFFFFF', x: 0, y: 10.5, w: 24, h: 3 },
     { kind: 'path', fill: '#FFB612', d: 'M0 3 8 12 0 21Z' },
   ],
+  AL: [
+    solid('#E41E20'),
+    {
+      kind: 'path',
+      fill: '#000000',
+      d: 'M12 5.2 10.6 3.4 8.7 4.1 10 5.5 7.5 5.1 6.2 6.5 9.2 7.6 6.6 8.8 7.5 10.4 10.3 9.4 9.2 12 6.8 13.3 7.8 14.8 10.2 14 9.4 16.6 11 17.5 11.4 15.3 12 14.2 12.6 15.3 13 17.5 14.6 16.6 14 14 16.2 14.8 17.2 13.3 14.8 12 13.7 9.4 16.5 10.4 17.4 8.8 14.8 7.6 17.8 6.5 16.5 5.1 14 5.5 15.3 4.1 13.4 3.4Z',
+    },
+  ],
+  GALICIA: [
+    solid('#FFFFFF'),
+    { kind: 'path', fill: '#63B2E8', d: 'M0 0h6l18 18v6h-6L0 6Z' },
+  ],
+  KH: [
+    bands('h', ['#032EA1', 1], ['#E00025', 2], ['#032EA1', 1]),
+    {
+      kind: 'path',
+      fill: '#FFFFFF',
+      d: 'M5 17h14v1.6H5Zm1.4-2.4h11.2V17H6.4ZM8.2 12h2.3v2.6H8.2Zm5.3 0h2.3v2.6h-2.3Zm-3.1-2.4h3.2l1.1 2.4H9.3Zm.8-3h1.6l.7 3h-3Z',
+    },
+  ],
+  LK: [
+    solid('#FFB700'),
+    { kind: 'rect', fill: '#005641', x: 1.5, y: 3, w: 3, h: 18 },
+    { kind: 'rect', fill: '#EB7400', x: 4.5, y: 3, w: 3, h: 18 },
+    { kind: 'rect', fill: '#8D153A', x: 8.5, y: 3, w: 14, h: 18 },
+    {
+      kind: 'path',
+      fill: '#FFB700',
+      d: 'M11 9.3h6l1.6-1.8 1 1-1.1 2.2v5.6h-2.1v-2.5h-2v2.5h-2.1v-4.2L10.7 11Zm7.4 0h1.8v1.3h-1.8Z',
+    },
+  ],
+  NP: [
+    { kind: 'path', fill: '#003893', d: 'M4 1 20 11.7h-8.1L21 23H4Z' },
+    { kind: 'path', fill: '#DC143C', d: 'M5.5 3.8 16.1 10.5H8.8l8.9 11H5.5Z' },
+    { kind: 'crescent', fill: '#FFFFFF', bg: '#DC143C', cx: 8.4, cy: 8.2, r: 2.2 },
+    { kind: 'star', fill: '#FFFFFF', cx: 9.1, cy: 17.2, r: 2.5 },
+  ],
+  TZ: [
+    solid('#1EB53A'),
+    { kind: 'path', fill: '#00A3DD', d: 'M0 24 24 0v24Z' },
+    { kind: 'path', fill: '#FCD116', d: 'M0 18.5 18.5 0H24v5.5L5.5 24H0Z' },
+    { kind: 'path', fill: '#000000', d: 'M0 21 21 0h3v3L3 24H0Z' },
+  ],
 }
 
 /**
- * The region a language is shown under. Chosen where one is conventional and
- * unlikely to mislead; languages without such a region are absent on purpose
- * and fall back to the globe.
+ * The region a language is shown under. Regional language flags win where
+ * they are widely recognised; otherwise this is a representative country.
  */
 const REGION_BY_LANGUAGE: Record<string, string> = {
   af: 'ZA',
   ak: 'GH',
   am: 'ET',
+  ar: 'SA',
   az: 'AZ',
   be: 'BY',
   bg: 'BG',
   bn: 'BD',
+  ca: 'CATALONIA',
   cs: 'CZ',
   da: 'DK',
   de: 'DE',
@@ -262,10 +332,12 @@ const REGION_BY_LANGUAGE: Record<string, string> = {
   en: 'US',
   es: 'ES',
   et: 'EE',
+  eu: 'BASQUE',
   fa: 'IR',
   fi: 'FI',
   fil: 'PH',
   fr: 'FR',
+  gl: 'GALICIA',
   gu: 'IN',
   ha: 'NG',
   he: 'IL',
@@ -280,6 +352,7 @@ const REGION_BY_LANGUAGE: Record<string, string> = {
   jv: 'ID',
   ka: 'GE',
   kk: 'KZ',
+  km: 'KH',
   kn: 'IN',
   ko: 'KR',
   lo: 'LA',
@@ -292,6 +365,7 @@ const REGION_BY_LANGUAGE: Record<string, string> = {
   ms: 'MY',
   my: 'MM',
   nb: 'NO',
+  ne: 'NP',
   nl: 'NL',
   no: 'NO',
   pa: 'IN',
@@ -302,11 +376,15 @@ const REGION_BY_LANGUAGE: Record<string, string> = {
   ru: 'RU',
   rw: 'RW',
   sd: 'PK',
+  si: 'LK',
   sk: 'SK',
   sl: 'SI',
+  sq: 'AL',
   sr: 'RS',
   su: 'ID',
   sv: 'SE',
+  sw: 'TZ',
+  ta: 'IN',
   te: 'IN',
   th: 'TH',
   tr: 'TR',

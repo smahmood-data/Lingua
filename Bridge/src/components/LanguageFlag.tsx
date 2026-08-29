@@ -88,9 +88,9 @@ function Globe() {
 }
 
 /**
- * The mark beside a language: its flag where one region is conventional for
- * it, and a globe where none is. Flags are drawn rather than set as emoji so
- * they render identically on every platform — see `languageFlags.ts`.
+ * The mark beside a language: a mapped flag for every supported language, and
+ * a defensive globe for an unknown code. Flags are drawn rather than set as
+ * emoji so they render identically on every platform — see `languageFlags.ts`.
  *
  * Memoised on the language code, which is all it depends on: roaming the list
  * with the arrow keys re-renders every row, and none of those renders should

@@ -116,6 +116,14 @@
   }
 }
 
+/* Keep every short invitation on one calm line on compact handsets. */
+@media (max-width: 400px) {
+  .idle-title {
+    font-size: clamp(1.35rem, 6.8vw, 1.6rem);
+    white-space: nowrap;
+  }
+}
+
 /*
   Side by side, the two languages stop fitting their own names before they
   stop fitting the screen. Stack them instead of shrinking them: the pair is

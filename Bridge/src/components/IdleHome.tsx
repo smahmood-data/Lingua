@@ -18,8 +18,18 @@ import './IdleHome.css'
 const GREETINGS = [
   'Ready when you are',
   'Whenever you’re ready',
-  'Go ahead',
   'Start when you’re ready',
+  'Speak when you’re ready',
+  'Begin when you’re ready',
+  'Ready to begin',
+  'Start whenever you like',
+  'Begin whenever you like',
+  'Whenever you’re set',
+  'When you’re ready',
+  'Take your time',
+  'Go ahead',
+  'Your turn',
+  'Ready whenever you are',
 ] as const
 
 function SwapGlyph() {
