@@ -1,4 +1,8 @@
-/* App shell: a single calm surface — top bar, reading column, control dock. */
+/*
+  App shell: header, one scrolling conversation region, and the console
+  anchored at the bottom. The console never moves, so the microphone is always
+  where the hand left it.
+*/
 .app-shell {
   display: flex;
   flex-direction: column;
@@ -6,9 +10,9 @@
 }
 
 .app-main {
+  position: relative;
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
 }

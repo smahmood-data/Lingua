@@ -1,0 +1,338 @@
+/* The conversation: a calm reading surface — spacing and type, not cards. */
+.conversation-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.conversation {
+  width: min(100% - 40px, 660px);
+  margin: 0 auto;
+  padding: clamp(18px, 3.5vh, 36px) 0 40px;
+}
+
+.turn-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.turn-list > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.turn {
+  padding: 18px 2px 20px;
+}
+
+.turn-list > li:first-child > .turn {
+  padding-top: 4px;
+}
+
+/* Who spoke and into what: small caps, carried by the languages' accents. */
+.turn-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.turn-dot {
+  align-self: center;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.turn-arrow {
+  color: var(--ink-mute);
+}
+
+.turn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-inline-start: auto;
+  color: var(--ink-mute);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.turn-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.chip-translating .turn-chip-dot {
+  background: var(--ink-mute);
+}
+
+.chip-playing .turn-chip-dot {
+  background: var(--target-accent, var(--accent));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .turn-chip-dot {
+    animation: chip-dot-pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes chip-dot-pulse {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+}
+
+/* What was said: comfortable, secondary. */
+.turn-source {
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 1.02rem;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+.turn-source-interim {
+  color: var(--ink-mute);
+  font-style: italic;
+}
+
+/* What the other person hears: the emphasis, marked with its language. */
+.turn-target {
+  margin-top: 10px;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--target-accent, var(--accent-line));
+  color: var(--ink);
+  font-size: 1.26rem;
+  font-weight: 620;
+  line-height: 1.38;
+  letter-spacing: -0.005em;
+  overflow-wrap: break-word;
+}
+
+/* The translation is on its way: a quiet placeholder in its language's tint. */
+.turn-shimmer {
+  display: block;
+  margin-top: 12px;
+  width: min(58%, 340px);
+  height: 1.05em;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--target-accent) 14%, var(--paper));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .turn-shimmer {
+    background: linear-gradient(
+      100deg,
+      color-mix(in srgb, var(--target-accent) 10%, var(--paper)) 30%,
+      color-mix(in srgb, var(--target-accent) 24%, var(--paper)) 50%,
+      color-mix(in srgb, var(--target-accent) 10%, var(--paper)) 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer-sweep 1.25s var(--ease-soft) infinite;
+  }
+
+  @keyframes shimmer-sweep {
+    from {
+      background-position: 120% 0;
+    }
+    to {
+      background-position: -80% 0;
+    }
+  }
+
+  /* A turn animates once, when its element mounts — never while it grows. */
+  .turn {
+    animation: turn-in 260ms var(--ease-out) both;
+  }
+
+  @keyframes turn-in {
+    from {
+      opacity: 0;
+      translate: 0 6px;
+    }
+    to {
+      opacity: 1;
+      translate: 0 0;
+    }
+  }
+}
+
+/* Urdu (Nastaliq) needs generous line height and a size step up. */
+.urdu-text {
+  font-family: var(--font-urdu);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 2.05;
+  padding-block: 2px;
+}
+
+.turn-source.urdu-text {
+  font-size: 1.24rem;
+}
+
+.turn-target.urdu-text {
+  font-size: 1.55rem;
+  line-height: 2.1;
+}
+
+/* --- Empty and placeholder states ----------------------------------------- */
+
+.conversation-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(28px, 7vh, 64px) 24px;
+  text-align: center;
+}
+
+.empty-title {
+  color: var(--ink);
+  font-family: var(--font-brand);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+.empty-body {
+  max-width: 44ch;
+  margin-top: 10px;
+  color: var(--ink-mute);
+  font-size: 0.94rem;
+  line-height: 1.65;
+}
+
+.empty-cue {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 30px;
+  color: var(--ink-mute);
+  font-size: 0.8rem;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+}
+
+.empty-cue-arrow {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  font-size: 0.75rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .empty-cue-arrow {
+    animation: cue-bob 2.2s ease-in-out infinite;
+  }
+
+  @keyframes cue-bob {
+    0%,
+    100% {
+      translate: 0 0;
+    }
+    50% {
+      translate: 0 3px;
+    }
+  }
+}
+
+.empty-active {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-mute);
+  font-size: 0.9rem;
+}
+
+.active-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.active-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-mute);
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .active-dots span {
+    animation: chip-dot-pulse 1.6s ease-in-out infinite;
+  }
+
+  .active-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .active-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+}
+
+/* --- Jump back to the latest ---------------------------------------------- */
+
+.jump-latest {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 2;
+  padding: 7px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 620;
+  letter-spacing: 0.01em;
+  box-shadow: 0 4px 14px rgb(28 34 30 / 10%);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.jump-latest:hover {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .jump-latest {
+    animation: turn-in 200ms var(--ease-out) both;
+  }
+}
+
+@media (max-width: 560px) {
+  .conversation {
+    width: min(100% - 32px, 660px);
+    padding-bottom: 28px;
+  }
+
+  .turn {
+    padding: 15px 0 17px;
+  }
+
+  .turn-target {
+    font-size: 1.18rem;
+  }
+}

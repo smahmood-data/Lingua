@@ -1,27 +1,17 @@
-import { statusMeta } from '../data/mockTranscripts'
-import type { AppStatus } from '../types'
+import type { SessionError } from '../lib/translation'
+import { noticeCopy } from '../uiState'
 import './StatusNotice.css'
 
-// Problem states get one clear inline notice with a next step.
-// Loading is handled by the transcript's connecting state instead.
-export function StatusNotice({
-  status,
-  detail,
-}: {
-  status: AppStatus
-  detail?: string
-}) {
-  const meta = statusMeta[status]
-  if (!meta.noticeTitle) return null
+// Problems get one calm inline strip: what happened, and the step that helps.
+export function StatusNotice({ error }: { error: SessionError }) {
+  const copy = noticeCopy(error)
 
   return (
-    <div
-      className={`status-notice notice-${meta.tone}`}
-      role={status === 'error' || status === 'denied' ? 'alert' : 'status'}
-    >
+    <div className={`status-notice notice-${copy.tone}`} role="alert">
+      <span className="notice-marker" aria-hidden="true" />
       <div className="notice-text">
-        <p className="notice-title">{meta.noticeTitle}</p>
-        <p className="notice-detail">{detail ?? meta.noticeDetail}</p>
+        <p className="notice-title">{copy.title}</p>
+        <p className="notice-detail">{copy.detail}</p>
       </div>
     </div>
   )

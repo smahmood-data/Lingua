@@ -1,70 +1,29 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { ControlDock } from './components/ControlDock'
-import { StatusNotice } from './components/StatusNotice'
+import { useCallback, useRef, useState } from 'react'
+import { ConversationView } from './components/ConversationView'
+import { MicConsole } from './components/MicConsole'
 import { TopBar } from './components/TopBar'
-import { Transcript } from './components/Transcript'
-import { mockTranscripts } from './data/mockTranscripts'
-import { useControlKeyboard } from './hooks/useControlKeyboard'
+import { mockTurns } from './data/mockTranscripts'
 import { useTranslationSession } from './hooks/useTranslationSession'
-import type {
-  ConversationTurn,
-  SessionError,
-  SessionState,
-} from './lib/translation'
+import {
+  AUTO_ACCENT,
+  languageAccent,
+  languagePairAccents,
+} from './languageAccents'
 import {
   AUTO_SOURCE_LANGUAGE,
-  controlIds,
   languageCodesMatch,
-  languageMetaFromCode,
-  type AppStatus,
-  type ControlId,
   type SourceLanguageCode,
   type SupportedLanguageCode,
-  type TranscriptLine,
 } from './types'
+import { deriveUiState, type PendingAction, type UiState } from './uiState'
 import './App.css'
 
-function toAppStatus(
-  state: SessionState,
-  error: SessionError | null,
-): AppStatus {
-  if (error?.code === 'microphone-permission-denied') return 'denied'
-  if (error?.code === 'live-disconnected') return 'disconnected'
-  if (state === 'error') return 'error'
-  if (state === 'connecting') return 'loading'
-  if (state === 'listening' || state === 'translating' || state === 'playing') {
-    return 'listening'
-  }
-  return 'ready'
-}
-
 /**
- * One conversation turn is one row. There is nothing to pair up here: the
- * coordinator already decided which words belong to which utterance, so the UI
- * never has to guess that a translation goes with the line above it.
+ * Taps closer together than this are one gesture, not two decisions. The
+ * session serializes starts and stops itself; this only keeps a double-tap
+ * from asking twice.
  */
-function toTranscriptLines(
-  turns: ConversationTurn[],
-  targetLanguage: SupportedLanguageCode,
-): TranscriptLine[] {
-  return turns.map((turn, index) => {
-    const originalLanguage = languageMetaFromCode(turn.sourceLanguage ?? 'und')
-    const translatedLanguage = languageMetaFromCode(
-      turn.targetLanguage ?? targetLanguage,
-    )
-
-    return {
-      id: index + 1,
-      speaker: `${originalLanguage.label} speaker`,
-      originalLanguage: originalLanguage.label,
-      originalLanguageCode: originalLanguage.code,
-      translatedLanguage: translatedLanguage.label,
-      translatedLanguageCode: translatedLanguage.code,
-      original: turn.sourceText,
-      translated: turn.translatedText,
-    }
-  })
-}
+const ACTIVATION_DEBOUNCE_MS = 400
 
 function App() {
   const {
@@ -75,41 +34,73 @@ function App() {
     isActive,
     sourceLanguage,
     targetLanguage,
+    counterpartLanguage,
     start,
     setLanguages,
     stop,
   } = useTranslationSession()
 
-  const [previewStatus, setPreviewStatus] = useState<AppStatus | null>(null)
-  const liveStatus = toAppStatus(state, error)
-  const usingPreview = state === 'stopped' && !error && previewStatus !== null
-  const status = usingPreview ? previewStatus : liveStatus
+  // Developer preview of the visual states, only while no session is live.
+  const [previewState, setPreviewState] = useState<UiState | null>(null)
+  const usingPreview = state === 'stopped' && !error && previewState !== null
 
-  const controlRefs = useRef<Record<ControlId, HTMLElement | null>>({
-    'source-language': null,
-    'target-language': null,
-    start: null,
-    stop: null,
-    demo: null,
-  })
-  const demoDetailsRef = useRef<HTMLDetailsElement | null>(null)
-
-  const registerControl = useMemo(() => {
-    const callbacks = {} as Record<
-      ControlId,
-      (element: HTMLElement | null) => void
-    >
-    for (const controlId of controlIds) {
-      callbacks[controlId] = (element) => {
-        controlRefs.current[controlId] = element
-      }
+  // A start/stop the session has accepted but not announced yet. This is not a
+  // second lifecycle: it only bridges the session's own serialization window
+  // and is cleared the moment the observed state settles.
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null)
+  const [observedState, setObservedState] = useState(state)
+  if (observedState !== state) {
+    setObservedState(state)
+    if (
+      (pendingAction === 'start' && state !== 'stopped') ||
+      (pendingAction === 'stop' && (state === 'stopped' || state === 'error'))
+    ) {
+      setPendingAction(null)
     }
-    return (controlId: ControlId) => callbacks[controlId]
-  }, [])
+  }
 
-  const isListening = isActive
-  const liveLines = toTranscriptLines(turns, targetLanguage)
-  const lines = usingPreview ? mockTranscripts : liveLines
+  const liveState = deriveUiState(state, error, pendingAction)
+  const uiState = usingPreview ? previewState : liveState
+
+  const displayedTurns = usingPreview ? mockTurns : turns
+  const openTurn = displayedTurns.findLast((turn) => turn.status !== 'complete')
+  // Previewing a busy state borrows the last fixture turn's direction.
+  const accentTurn =
+    openTurn ?? (usingPreview ? displayedTurns[displayedTurns.length - 1] : undefined)
+
+  const isAuto = sourceLanguage === AUTO_SOURCE_LANGUAGE
+  const detected = isAuto ? counterpartLanguage : null
+  const [accentA, accentB] = (() => {
+    const first = isAuto ? detected : sourceLanguage
+    return first
+      ? languagePairAccents(first, targetLanguage)
+      : ([AUTO_ACCENT, languageAccent(targetLanguage)] as const)
+  })()
+
+  const lastActivationRef = useRef(0)
+  const handleMicActivate = useCallback(() => {
+    const now = Date.now()
+    if (now - lastActivationRef.current < ACTIVATION_DEBOUNCE_MS) return
+    if (pendingAction !== null) return
+    if (state === 'connecting') return
+    lastActivationRef.current = now
+    setPreviewState(null)
+    if (isActive) {
+      setPendingAction('stop')
+      void stop()
+    } else {
+      setPendingAction('start')
+      void start(sourceLanguage, targetLanguage)
+    }
+  }, [
+    pendingAction,
+    state,
+    isActive,
+    start,
+    stop,
+    sourceLanguage,
+    targetLanguage,
+  ])
 
   const selectSourceLanguage = useCallback(
     (nextSource: SourceLanguageCode) => {
@@ -143,56 +134,42 @@ function App() {
     [setLanguages, sourceLanguage, targetLanguage],
   )
 
-  const { handleDemoSelectKeyDown } = useControlKeyboard({
-    isListening,
-    controlRefs,
-    demoDetailsRef,
-  })
-
-  function startInterpreter() {
-    setPreviewStatus(null)
-    void start(sourceLanguage, targetLanguage)
-  }
-
-  function stopInterpreter() {
-    setPreviewStatus(null)
-    void stop()
-  }
-
   return (
-    <div className="app-shell">
-      <TopBar
-        status={status}
-        sourceLanguage={sourceLanguage}
-        targetLanguage={targetLanguage}
-      />
+    <div
+      className="app-shell"
+      style={
+        {
+          '--lang-a': accentA.strong,
+          '--lang-b': accentB.strong,
+        } as React.CSSProperties
+      }
+    >
+      <TopBar state={uiState} />
 
       <main className="app-main">
-        <StatusNotice status={status} detail={error?.message} />
-        <Transcript
-          status={status}
-          lines={lines}
+        <ConversationView
+          state={uiState}
+          turns={displayedTurns}
+          interimTranscript={usingPreview ? null : interimTranscript}
           sourceLanguage={sourceLanguage}
           targetLanguage={targetLanguage}
-          interimText={interimTranscript?.text}
-          isPlaying={state === 'playing'}
-          isTranslating={state === 'translating'}
+          error={usingPreview ? null : error}
         />
       </main>
 
-      <ControlDock
+      <MicConsole
+        state={uiState}
         sourceLanguage={sourceLanguage}
         targetLanguage={targetLanguage}
-        status={status}
-        isListening={isListening}
-        registerControl={registerControl}
-        demoDetailsRef={demoDetailsRef}
+        detectedLanguage={detected}
+        pairAccents={[accentA, accentB]}
+        liveSource={accentTurn?.sourceLanguage ?? null}
+        liveTarget={accentTurn?.targetLanguage ?? null}
+        onActivate={handleMicActivate}
         onSelectSourceLanguage={selectSourceLanguage}
         onSelectTargetLanguage={selectTargetLanguage}
-        onStart={startInterpreter}
-        onStop={stopInterpreter}
-        onStatusChange={setPreviewStatus}
-        onDemoSelectKeyDown={handleDemoSelectKeyDown}
+        previewState={previewState}
+        onPreviewState={setPreviewState}
       />
     </div>
   )

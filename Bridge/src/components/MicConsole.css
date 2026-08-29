@@ -1,0 +1,426 @@
+/*
+  The console: pair selector, the microphone, and the session's own words.
+  Anchored at the bottom so the one control that matters is always reachable
+  and never moves, whatever the conversation above it is doing.
+*/
+.console {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px clamp(16px, 4vw, 32px) max(8px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--paper-raised);
+}
+
+/* --- The microphone stage ------------------------------------------------ */
+
+.mic-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 118px;
+}
+
+.mic-stage .waveform {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: min(430px, 100%);
+}
+
+.orb-wrap {
+  position: relative;
+  z-index: 1;
+  width: 120px;
+  height: 120px;
+}
+
+.orb-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.orb-ring-circle {
+  stroke: var(--line-strong);
+  transition: stroke var(--dur-med) var(--ease-out);
+}
+
+.mic-listening .orb-ring-circle,
+.mic-translating .orb-ring-circle {
+  stroke: url(#pair-ring);
+}
+
+.mic-playing .orb-ring-circle {
+  stroke: var(--orb-to);
+}
+
+.mic-connecting .orb-ring-circle {
+  stroke: var(--ink-mute);
+}
+
+.mic-permission .orb-ring-circle {
+  stroke: var(--warn-ink);
+}
+
+.mic-disconnected .orb-ring-circle,
+.mic-error .orb-ring-circle {
+  stroke: var(--danger-ink);
+}
+
+.orb {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--paper-raised);
+  color: var(--ink);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.orb:hover:not(:disabled) {
+  border-color: var(--ink-mute);
+}
+
+.orb:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.orb:disabled {
+  cursor: default;
+}
+
+.orb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
+/* Icons crossfade: microphone (input) → arrows (working) → speaker (output). */
+.orb-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform: scale(0.72);
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out),
+    color var(--dur-med) var(--ease-out);
+}
+
+.icon-mic {
+  opacity: 1;
+  transform: none;
+}
+
+.mic-translating .icon-mic,
+.mic-playing .icon-mic {
+  opacity: 0;
+  transform: scale(0.72);
+}
+
+.mic-translating .icon-interpret {
+  opacity: 1;
+  transform: none;
+  color: var(--orb-to);
+}
+
+.mic-playing .icon-speaker {
+  opacity: 1;
+  transform: none;
+  color: var(--orb-to);
+}
+
+.mic-playing .orb {
+  border-color: var(--orb-to);
+}
+
+.mic-permission .orb,
+.mic-disconnected .orb,
+.mic-error .orb {
+  color: var(--ink-soft);
+}
+
+/* A small "needs attention" marker — never a siren. */
+.orb-badge {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--warn-ink);
+  color: var(--paper);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.mic-disconnected .orb-badge,
+.mic-error .orb-badge {
+  background: var(--danger-ink);
+}
+
+/* Outward ripples while Lingua speaks. */
+.orb-ripple {
+  position: absolute;
+  inset: 18px;
+  border: 2px solid var(--orb-to);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Idle: the faintest invitation, on the ring only. */
+  .mic-idle .orb-ring {
+    animation: ring-invite 3.6s ease-in-out infinite;
+  }
+
+  /* Listening: the whole orb breathes slowly, in step with the waveform. */
+  .mic-listening .orb-wrap {
+    animation: orb-breathe 2.6s ease-in-out infinite;
+  }
+
+  /* Translating: the pair gradient travels around the ring. */
+  .mic-translating .orb-ring-circle {
+    animation: ring-rotate 1.5s linear infinite;
+    transform-origin: center;
+  }
+
+  /* Connecting: a single arc making its way around. */
+  .mic-connecting .orb-ring-circle {
+    animation: ring-rotate 1.15s linear infinite;
+    transform-origin: center;
+  }
+
+  .mic-playing .orb-ripple {
+    animation: orb-ripple 1.7s var(--ease-out) infinite;
+  }
+
+  .mic-playing .orb-ripple.ripple-late {
+    animation-delay: 0.85s;
+  }
+
+  @keyframes ring-invite {
+    0%,
+    100% {
+      opacity: 0.65;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.025);
+    }
+  }
+
+  @keyframes orb-breathe {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.028);
+    }
+  }
+
+  @keyframes ring-rotate {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes orb-ripple {
+    0% {
+      opacity: 0.5;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.62);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb-icon {
+    transition: opacity 100ms linear;
+    transform: none;
+  }
+
+  .mic-translating .icon-mic,
+  .mic-playing .icon-mic {
+    transform: none;
+  }
+
+  .mic-translating .icon-interpret,
+  .mic-playing .icon-speaker {
+    transform: none;
+  }
+
+  /* Static but unmistakable: a double ring while Lingua speaks. */
+  .mic-playing .orb-ripple:first-of-type {
+    opacity: 0.4;
+    transform: scale(1.18);
+  }
+}
+
+/* --- Status copy ---------------------------------------------------------- */
+
+.console-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.status-primary {
+  display: block;
+  min-height: 1.45em;
+  color: var(--ink);
+  font-family: var(--font-brand);
+  font-size: 1.18rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+.status-helper {
+  display: block;
+  min-height: 1.4em;
+  margin-top: 1px;
+  color: var(--ink-mute);
+  font-size: 0.83rem;
+  line-height: 1.4;
+}
+
+.mic-permission ~ .console-status .status-primary,
+.mic-disconnected ~ .console-status .status-primary,
+.mic-error ~ .console-status .status-primary {
+  font-family: var(--font-ui);
+  font-size: 1.05rem;
+}
+
+/* --- Utility row: developer state preview, kept out of the way ------------ */
+
+.console-utility {
+  display: flex;
+  justify-content: flex-end;
+  width: min(100%, 560px);
+  min-height: 20px;
+}
+
+.demo-controls {
+  position: relative;
+  color: var(--ink-mute);
+  font-size: 0.72rem;
+}
+
+.demo-controls summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.demo-controls summary::-webkit-details-marker {
+  display: none;
+}
+
+.demo-controls summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-block: 3.5px solid transparent;
+  border-inline-start: 5px solid currentColor;
+  transition: rotate var(--dur-fast) var(--ease-out);
+}
+
+.demo-controls[open] summary::before {
+  rotate: 90deg;
+}
+
+.demo-controls summary:hover {
+  color: var(--ink);
+}
+
+.demo-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--paper-raised);
+  box-shadow: 0 8px 24px rgb(28 34 30 / 10%);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.demo-panel select {
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-size: 0.8rem;
+}
+
+/* --- Small screens --------------------------------------------------------- */
+
+@media (max-width: 560px) {
+  .console {
+    gap: 2px;
+    padding-top: 10px;
+  }
+
+  .mic-stage {
+    height: 104px;
+  }
+
+  .orb-wrap {
+    width: 104px;
+    height: 104px;
+  }
+
+  .orb {
+    width: 74px;
+    height: 74px;
+  }
+
+  .orb-ripple {
+    inset: 15px;
+  }
+
+  .orb-badge {
+    top: 10px;
+    right: 12px;
+  }
+
+  .status-primary {
+    font-size: 1.08rem;
+  }
+}

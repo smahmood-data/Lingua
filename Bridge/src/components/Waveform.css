@@ -1,0 +1,154 @@
+/* A restrained voice line: 26 thin bars, calm by default. */
+.waveform {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: min(430px, 78vw);
+  height: 44px;
+  pointer-events: none;
+}
+
+.wave-bar {
+  width: 3px;
+  height: var(--h);
+  border-radius: 2px;
+  background: var(--c);
+  opacity: 0.9;
+  transform-origin: center;
+  transition:
+    background-color var(--dur-med) var(--ease-out),
+    height var(--dur-med) var(--ease-out),
+    opacity var(--dur-med) var(--ease-out);
+}
+
+/* Idle and problem states are nearly still — present, never demanding. */
+.wave-idle .wave-bar,
+.wave-permission .wave-bar,
+.wave-disconnected .wave-bar,
+.wave-error .wave-bar {
+  opacity: 0.45;
+  transform: scaleY(0.42);
+}
+
+.wave-stopping .wave-bar {
+  opacity: 0.5;
+  transform: scaleY(0.5);
+  transition:
+    transform 400ms var(--ease-out),
+    opacity 400ms var(--ease-out),
+    background-color 400ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Listening: the whole line breathes, edges following the center. */
+  .wave-listening .wave-bar {
+    animation: wave-breathe 2.6s ease-in-out infinite;
+    animation-delay: calc(var(--d) * 95ms);
+  }
+
+  /* Translating: a wave travels from the spoken side toward the target. */
+  .wave-translating .wave-bar {
+    animation: wave-travel 1.15s var(--ease-soft) infinite;
+    animation-delay: calc(var(--i) * 52ms);
+  }
+
+  /* Playing: pulses move outward from the voice, a little quicker. */
+  .wave-playing .wave-bar {
+    animation: wave-pulse 1.05s ease-in-out infinite;
+    animation-delay: calc(var(--d) * 70ms);
+  }
+
+  /* Connecting: a soft sweep while the session opens. */
+  .wave-connecting .wave-bar {
+    animation: wave-sweep 1.3s ease-in-out infinite;
+    animation-delay: calc(var(--i) * 42ms);
+  }
+
+  @keyframes wave-breathe {
+    0%,
+    100% {
+      transform: scaleY(0.55);
+      opacity: 0.65;
+    }
+    50% {
+      transform: scaleY(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes wave-travel {
+    0%,
+    100% {
+      transform: scaleY(0.4);
+      opacity: 0.55;
+    }
+    40% {
+      transform: scaleY(1.05);
+      opacity: 1;
+    }
+  }
+
+  @keyframes wave-pulse {
+    0%,
+    100% {
+      transform: scaleY(0.5);
+      opacity: 0.7;
+    }
+    50% {
+      transform: scaleY(1.14);
+      opacity: 1;
+    }
+  }
+
+  @keyframes wave-sweep {
+    0%,
+    100% {
+      transform: scaleY(0.45);
+      opacity: 0.4;
+    }
+    50% {
+      transform: scaleY(0.9);
+      opacity: 0.85;
+    }
+  }
+}
+
+/* Reduced motion: state still reads from color and a static shape. */
+@media (prefers-reduced-motion: reduce) {
+  .wave-listening .wave-bar {
+    opacity: 0.9;
+    transform: none;
+  }
+
+  .wave-translating .wave-bar {
+    opacity: 0.9;
+    transform: scaleY(0.8);
+  }
+
+  .wave-playing .wave-bar {
+    opacity: 1;
+    transform: scaleY(1.05);
+  }
+
+  .wave-connecting .wave-bar {
+    opacity: 0.7;
+    transform: scaleY(0.7);
+  }
+}
+
+/* Keep the line elegant on narrow phones: fewer, slightly narrower bars. */
+@media (max-width: 420px) {
+  .waveform {
+    gap: 3px;
+    width: min(330px, 84vw);
+  }
+
+  .wave-bar {
+    width: 2.5px;
+  }
+
+  .wave-bar:nth-child(even) {
+    display: none;
+  }
+}

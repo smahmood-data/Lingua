@@ -1,42 +1,44 @@
-import type { AppStatus, ControlId } from '../types'
+import type { UiState } from '../uiState'
 
 type Props = {
-  status: AppStatus
-  registerControl: (
-    controlId: ControlId,
-  ) => (element: HTMLElement | null) => void
-  detailsRef: React.RefObject<HTMLDetailsElement | null>
-  onStatusChange: (status: AppStatus) => void
-  onSelectKeyDown: (event: React.KeyboardEvent<HTMLSelectElement>) => void
+  previewState: UiState | null
+  onPreviewState: (state: UiState | null) => void
 }
+
+const PREVIEW_OPTIONS: { value: UiState; label: string }[] = [
+  { value: 'idle', label: 'Idle' },
+  { value: 'connecting', label: 'Connecting' },
+  { value: 'listening', label: 'Listening' },
+  { value: 'translating', label: 'Translating' },
+  { value: 'playing', label: 'Playing' },
+  { value: 'stopping', label: 'Stopping' },
+  { value: 'permission', label: 'Microphone needed' },
+  { value: 'disconnected', label: 'Disconnected' },
+  { value: 'error', label: 'Error' },
+]
 
 // Developer tooling for walking through every UI state without the API.
 // Kept visually quiet so it never competes with the product experience.
-export function DemoStates({
-  status,
-  registerControl,
-  detailsRef,
-  onStatusChange,
-  onSelectKeyDown,
-}: Props) {
+export function DemoStates({ previewState, onPreviewState }: Props) {
   return (
-    <details ref={detailsRef} className="demo-controls">
-      <summary>Demo states</summary>
+    <details className="demo-controls">
+      <summary>Preview states</summary>
       <div className="demo-panel">
         <label htmlFor="demo-state">UI state</label>
         <select
           id="demo-state"
-          ref={registerControl('demo')}
-          value={status}
-          onChange={(event) => onStatusChange(event.target.value as AppStatus)}
-          onKeyDown={onSelectKeyDown}
+          value={previewState ?? ''}
+          onChange={(event) => {
+            const value = event.target.value
+            onPreviewState(value === '' ? null : (value as UiState))
+          }}
         >
-          <option value="ready">Ready</option>
-          <option value="listening">Listening</option>
-          <option value="loading">Loading</option>
-          <option value="disconnected">Disconnected</option>
-          <option value="denied">Microphone denied</option>
-          <option value="error">API error</option>
+          <option value="">Live session</option>
+          {PREVIEW_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
       </div>
     </details>

@@ -17,6 +17,8 @@ export interface UseTranslationSessionResult {
   targetLanguage: SupportedLanguageCode
   /** Selected input language, or per-utterance automatic detection. */
   sourceLanguage: SourceLanguageCode
+  /** The counterpart Auto has detected, or the explicitly selected source. */
+  counterpartLanguage: SupportedLanguageCode | null
   /** Last failure, cleared when a new session starts. `null` while healthy. */
   error: SessionError | null
   /** Conversation history, including the turn in progress. Never persisted. */
@@ -102,6 +104,7 @@ export function useTranslationSession(
     state: snapshot.state,
     sourceLanguage: snapshot.sourceLanguage,
     targetLanguage: snapshot.targetLanguage,
+    counterpartLanguage: snapshot.counterpartLanguage,
     error: snapshot.error,
     turns: snapshot.turns,
     interimTranscript: snapshot.interimTranscript,
