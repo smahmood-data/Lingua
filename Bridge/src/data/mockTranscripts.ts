@@ -1,45 +1,28 @@
-import type { AppStatus, Direction, TranscriptLine } from '../types'
+import type { AppStatus, TranscriptLine } from '../types'
 
-// Keeping separate fixtures makes the direction buttons visibly change the demo.
-// The audio issues (#2/#3) will replace these with live session events.
-export const mockTranscripts: Record<Direction, TranscriptLine[]> = {
-  'ur-en': [
-    {
-      id: 1,
-      speaker: 'Speaker 1',
-      originalLanguage: 'Urdu',
-      translatedLanguage: 'English',
-      original: 'ہیلو، کیا آپ میری مدد کر سکتے ہیں؟',
-      translated: 'Hello, can you help me?',
-    },
-    {
-      id: 2,
-      speaker: 'Speaker 2',
-      originalLanguage: 'English',
-      translatedLanguage: 'Urdu',
-      original: 'Yes, of course. What do you need?',
-      translated: 'جی ہاں، ضرور۔ آپ کو کیا چاہیے؟',
-    },
-  ],
-  'en-ur': [
-    {
-      id: 1,
-      speaker: 'Speaker 1',
-      originalLanguage: 'English',
-      translatedLanguage: 'Urdu',
-      original: 'Hello, can you help me?',
-      translated: 'ہیلو، کیا آپ میری مدد کر سکتے ہیں؟',
-    },
-    {
-      id: 2,
-      speaker: 'Speaker 2',
-      originalLanguage: 'Urdu',
-      translatedLanguage: 'English',
-      original: 'جی ہاں، ضرور۔ آپ کو کیا چاہیے؟',
-      translated: 'Yes, of course. What do you need?',
-    },
-  ],
-}
+// Preview fixture for the default auto-detect → English route.
+export const mockTranscripts: TranscriptLine[] = [
+  {
+    id: 1,
+    speaker: 'Urdu speaker',
+    originalLanguage: 'Urdu',
+    originalLanguageCode: 'ur',
+    translatedLanguage: 'English',
+    translatedLanguageCode: 'en',
+    original: 'ہیلو، کیا آپ میری مدد کر سکتے ہیں؟',
+    translated: 'Hello, can you help me?',
+  },
+  {
+    id: 2,
+    speaker: 'Spanish speaker',
+    originalLanguage: 'Spanish',
+    originalLanguageCode: 'es',
+    translatedLanguage: 'English',
+    translatedLanguageCode: 'en',
+    original: 'Sí, por supuesto. ¿Qué necesita?',
+    translated: 'Yes, of course. What do you need?',
+  },
+]
 
 export type StatusTone = 'idle' | 'active' | 'busy' | 'warning' | 'danger'
 

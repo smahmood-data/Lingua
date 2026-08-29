@@ -1,0 +1,1530 @@
+[
+  {
+    "t": 212386,
+    "event": "state",
+    "detail": {
+      "from": "stopped",
+      "to": "connecting",
+      "turns": 0,
+      "pair": "en<->bn",
+      "counterpart": "en"
+    }
+  },
+  {
+    "t": 214159,
+    "event": "state",
+    "detail": {
+      "from": "connecting",
+      "to": "listening",
+      "turns": 0,
+      "pair": "en<->bn",
+      "counterpart": "en"
+    }
+  },
+  {
+    "t": 218844,
+    "event": "speech-start",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 1
+    }
+  },
+  {
+    "t": 218844,
+    "event": "turn-open",
+    "detail": {
+      "turn": "turn-3",
+      "by": 6
+    }
+  },
+  {
+    "t": 218845,
+    "event": "source-transcript",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 1,
+      "finished": true,
+      "length": 45,
+      "language": "en"
+    }
+  },
+  {
+    "t": 218845,
+    "event": "state",
+    "detail": {
+      "from": "listening",
+      "to": "translating",
+      "turns": 1,
+      "pair": "en<->bn",
+      "counterpart": "en"
+    }
+  },
+  {
+    "t": 218845,
+    "event": "speech-end",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 1
+    }
+  },
+  {
+    "t": 219045,
+    "event": "speech-start",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 1
+    }
+  },
+  {
+    "t": 219046,
+    "event": "source-transcript",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 1,
+      "finished": true,
+      "length": 45,
+      "language": "en"
+    }
+  },
+  {
+    "t": 219046,
+    "event": "speech-end",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 1
+    }
+  },
+  {
+    "t": 219067,
+    "event": "translation-transcript",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 1,
+      "length": 23
+    }
+  },
+  {
+    "t": 219080,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 1,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219098,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 1,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219187,
+    "event": "translation-transcript",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 1,
+      "length": 25
+    }
+  },
+  {
+    "t": 219227,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 1,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219228,
+    "event": "claim",
+    "detail": {
+      "turn": "turn-3",
+      "route": 5,
+      "favoured": 5,
+      "language": "en",
+      "counterpart": "en",
+      "into": "bn"
+    }
+  },
+  {
+    "t": 219228,
+    "event": "playback-start"
+  },
+  {
+    "t": 219228,
+    "event": "state",
+    "detail": {
+      "from": "translating",
+      "to": "playing",
+      "turns": 1,
+      "pair": "en<->bn",
+      "counterpart": "en"
+    }
+  },
+  {
+    "t": 219245,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 1,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219246,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 1,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219380,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 1,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219470,
+    "event": "turn-end",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 1,
+      "generation": 1
+    }
+  },
+  {
+    "t": 219471,
+    "event": "speech-start",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 2
+    }
+  },
+  {
+    "t": 219471,
+    "event": "source-transcript",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 2,
+      "finished": true,
+      "length": 23,
+      "language": "en"
+    }
+  },
+  {
+    "t": 219471,
+    "event": "speech-end",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 2
+    }
+  },
+  {
+    "t": 219484,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 2,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219628,
+    "event": "turn-end",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 1,
+      "generation": 1
+    }
+  },
+  {
+    "t": 219629,
+    "event": "speech-start",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 2
+    }
+  },
+  {
+    "t": 219629,
+    "event": "source-transcript",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 2,
+      "finished": true,
+      "length": 23,
+      "language": "en"
+    }
+  },
+  {
+    "t": 219629,
+    "event": "speech-end",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 2
+    }
+  },
+  {
+    "t": 219659,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 2,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219896,
+    "event": "translation-transcript",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 2,
+      "length": 21
+    }
+  },
+  {
+    "t": 219914,
+    "event": "translation-transcript",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 2,
+      "length": 14
+    }
+  },
+  {
+    "t": 219927,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 2,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219930,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 2,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 219985,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 2,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 220095,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 2,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 220235,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 2,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 220417,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 2,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 220542,
+    "event": "turn-end",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 2,
+      "generation": 2
+    }
+  },
+  {
+    "t": 220543,
+    "event": "speech-start",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 3
+    }
+  },
+  {
+    "t": 220544,
+    "event": "source-transcript",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 3,
+      "finished": true,
+      "length": 9,
+      "language": "en"
+    }
+  },
+  {
+    "t": 220544,
+    "event": "speech-end",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "utterance": 3
+    }
+  },
+  {
+    "t": 220567,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 220581,
+    "event": "turn-end",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 2,
+      "generation": 2
+    }
+  },
+  {
+    "t": 220581,
+    "event": "speech-start",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 3
+    }
+  },
+  {
+    "t": 220581,
+    "event": "source-transcript",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 3,
+      "finished": true,
+      "length": 9,
+      "language": "en"
+    }
+  },
+  {
+    "t": 220581,
+    "event": "speech-end",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "utterance": 3
+    }
+  },
+  {
+    "t": 220596,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 220779,
+    "event": "translation-transcript",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "length": 28
+    }
+  },
+  {
+    "t": 220801,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 220941,
+    "event": "translation-transcript",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "length": 17
+    }
+  },
+  {
+    "t": 220965,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 220984,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 221093,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 221234,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 221344,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 221486,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 221598,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 221862,
+    "event": "translation-transcript",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "length": 33
+    }
+  },
+  {
+    "t": 221886,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 221996,
+    "event": "translation-transcript",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "length": 39
+    }
+  },
+  {
+    "t": 222050,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 222050,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 222093,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 222232,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 222344,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 222513,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 222593,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 222732,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 222844,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 223047,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 223095,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 223234,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 223347,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 223564,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 223595,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 223733,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 223843,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 223985,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 224097,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 224235,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 224345,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 224486,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 224610,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 224735,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 224844,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 224984,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 225136,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 225235,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 225347,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 225483,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 225662,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 225733,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 225848,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 225986,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 226093,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 226234,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 226346,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 226484,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 226594,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 226738,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 226843,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 226985,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 227094,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 227236,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 227346,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 227482,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 227595,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 227759,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 227847,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 227984,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 228096,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 228281,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 228344,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 228485,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 228594,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 228804,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 228844,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 228984,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 229094,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 229235,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 229344,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 229485,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 229595,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 229736,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 229852,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 229984,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 230094,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 230234,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 230378,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 230484,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 230593,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 230734,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 230898,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 230983,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 231095,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 231234,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 231426,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 231483,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 231591,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 231734,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 231845,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 231983,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 232093,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 232236,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 232346,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 232494,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 232594,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 232733,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 232843,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 232997,
+    "event": "audio",
+    "detail": {
+      "route": 6,
+      "into": "en",
+      "generation": 3,
+      "bytes": 12000
+    }
+  },
+  {
+    "t": 233093,
+    "event": "audio",
+    "detail": {
+      "route": 5,
+      "into": "bn",
+      "generation": 3,
+      "bytes": 12000
+    }
+  }
+]

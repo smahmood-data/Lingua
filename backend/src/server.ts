@@ -4,7 +4,13 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
-dotenv.config();
+const backendRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
+const repoRoot = resolve(backendRoot, '..');
+
+dotenv.config({ path: resolve(backendRoot, '.env') });
+if (!process.env.GEMINI_API_KEY) {
+  dotenv.config({ path: resolve(repoRoot, '.env') });
+}
 
 const app = express();
 
@@ -24,7 +30,101 @@ const LIVE_NEW_SESSION_TTL_SECONDS = toPositiveInteger(
   60,
 );
 
-type TranslationDirection = 'ur-to-en' | 'en-to-ur';
+const SUPPORTED_TARGET_LANGUAGES = [
+  'af',
+  'ak',
+  'sq',
+  'am',
+  'ar',
+  'hy',
+  'az',
+  'eu',
+  'be',
+  'bn',
+  'bg',
+  'my',
+  'ca',
+  'zh-Hans',
+  'zh-Hant',
+  'hr',
+  'cs',
+  'da',
+  'nl',
+  'en',
+  'et',
+  'fil',
+  'fi',
+  'fr',
+  'gl',
+  'ka',
+  'de',
+  'el',
+  'gu',
+  'ha',
+  'he',
+  'hi',
+  'hu',
+  'is',
+  'id',
+  'it',
+  'ja',
+  'jv',
+  'kn',
+  'kk',
+  'km',
+  'rw',
+  'ko',
+  'lo',
+  'lv',
+  'lt',
+  'mk',
+  'ms',
+  'ml',
+  'mr',
+  'mn',
+  'ne',
+  'no',
+  'nb',
+  'fa',
+  'pl',
+  'pt-BR',
+  'pt-PT',
+  'pa',
+  'ro',
+  'ru',
+  'sr',
+  'sd',
+  'si',
+  'sk',
+  'sl',
+  'es',
+  'su',
+  'sw',
+  'sv',
+  'ta',
+  'te',
+  'th',
+  'tr',
+  'uk',
+  'ur',
+  'uz',
+  'vi',
+  'zu',
+] as const;
+type SupportedLanguageCode = (typeof SUPPORTED_TARGET_LANGUAGES)[number];
+type SourceLanguageCode = 'auto' | SupportedLanguageCode;
+const SUPPORTED_TARGET_LANGUAGE_SET = new Set<string>(SUPPORTED_TARGET_LANGUAGES);
+/**
+ * Automatic activity detection for the sessions this token constrains.
+ *
+ * The low end sensitivity prevents ordinary mid-sentence pauses from becoming
+ * separate model turns. The explicit silence duration still provides a bounded
+ * end-of-speech fallback. Mirrors `END_OF_SPEECH_*` in the frontend's
+ * translation config; the token constrains the session setup, so the two must
+ * agree.
+ */
+const END_OF_SPEECH_SILENCE_MS = 700;
+const END_OF_SPEECH_SENSITIVITY = 'END_SENSITIVITY_LOW';
 type SummaryArrayKey = Exclude<keyof ConversationSummary, 'summary'>;
 
 const SUMMARY_ARRAY_KEYS: SummaryArrayKey[] = [
@@ -185,11 +285,16 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 app.get('/api/live-token', async (req: Request, res: Response) => {
-  const direction = normalizeDirection(req.query.direction);
-  if (!direction) {
+  const route = normalizeTranslationRoute(
+    req.query.target,
+    req.query.source,
+    req.query.direction,
+  );
+  if (!route) {
     return res.status(400).json({
       error: 'Validation Error',
-      message: 'direction must be one of: ur-to-en, en-to-ur.',
+      message:
+        'source must be auto or a supported language, target must be supported, and the languages must differ.',
     });
   }
 
@@ -204,7 +309,8 @@ app.get('/api/live-token', async (req: Request, res: Response) => {
 
   try {
     const token = await createGeminiLiveToken({
-      direction,
+      sourceLanguage: route.sourceLanguage,
+      targetLanguage: route.targetLanguage,
       expireTime,
       newSessionExpireTime,
     });
@@ -220,7 +326,10 @@ app.get('/api/live-token', async (req: Request, res: Response) => {
       expiresAt: authToken.expireTime || expireTime,
       newSessionExpiresAt: authToken.newSessionExpireTime || newSessionExpireTime,
       model: GEMINI_LIVE_MODEL,
-      direction,
+      sourceLanguage: route.sourceLanguage,
+      targetLanguage: route.targetLanguage,
+      direction: route.direction,
+      systemInstruction: route.systemInstruction,
     });
   } catch (error) {
     sendGeminiError(res, error, 'Unable to create Gemini Live token.');
@@ -286,14 +395,23 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 async function createGeminiLiveToken({
-  direction,
+  sourceLanguage,
+  targetLanguage,
   expireTime,
   newSessionExpireTime,
 }: {
-  direction: TranslationDirection;
+  sourceLanguage: SourceLanguageCode;
+  targetLanguage: SupportedLanguageCode;
   expireTime: string;
   newSessionExpireTime: string;
 }): Promise<GeminiAuthTokenResponse> {
+  const systemInstruction = buildInterpreterInstruction(
+    sourceLanguage,
+    targetLanguage,
+  );
+  // `liveConnectConstraints` does not exist on this API version — it is
+  // rejected with "Unknown name" — so `bidiGenerateContentSetup` is the only
+  // way to bind a token to a model, an instruction, and a target language.
   const response = await fetch(`${GEMINI_API_BASE_URL}/auth_tokens`, {
     method: 'POST',
     headers: {
@@ -306,16 +424,27 @@ async function createGeminiLiveToken({
       newSessionExpireTime,
       bidiGenerateContentSetup: {
         model: `models/${GEMINI_LIVE_MODEL.replace(/^models\//, '')}`,
+        systemInstruction: {
+          parts: [{ text: systemInstruction }],
+        },
         generationConfig: {
           responseModalities: ['AUDIO'],
           translationConfig: {
-            targetLanguageCode: getTargetLanguageCode(direction),
+            targetLanguageCode: targetLanguage,
+            // A route stays silent when the language being spoken is already
+            // its target, so the other route of the pair is the only one heard.
             echoTargetLanguage: false,
           },
         },
         sessionResumption: {},
         inputAudioTranscription: {},
         outputAudioTranscription: {},
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            endOfSpeechSensitivity: END_OF_SPEECH_SENSITIVITY,
+            silenceDurationMs: END_OF_SPEECH_SILENCE_MS,
+          },
+        },
       },
     }),
     signal: AbortSignal.timeout(30_000),
@@ -379,10 +508,6 @@ async function parseGeminiResponse<T>(response: globalThis.Response): Promise<T>
   }
 
   return data as T;
-}
-
-function getTargetLanguageCode(direction: TranslationDirection): 'en' | 'ur' {
-  return direction === 'ur-to-en' ? 'en' : 'ur';
 }
 
 function buildSummaryPrompt(transcript: TranscriptTurn[], preferredLanguage: string): string {
@@ -477,18 +602,110 @@ function validateSummary(summary: unknown): string | null {
   return null;
 }
 
-function normalizeDirection(direction: unknown): TranslationDirection | null {
-  const value = typeof direction === 'string' ? direction : 'ur-to-en';
-
-  if (value === 'ur-en') {
-    return 'ur-to-en';
+function normalizeTranslationRoute(
+  target: unknown,
+  source: unknown,
+  direction: unknown,
+): {
+  sourceLanguage: SourceLanguageCode;
+  targetLanguage: SupportedLanguageCode;
+  direction: string;
+  systemInstruction: string;
+} | null {
+  if (typeof target === 'string') {
+    const targetLanguage = normalizeTargetLanguage(target);
+    const sourceLanguage = normalizeSourceLanguage(source ?? 'auto');
+    if (
+      !targetLanguage ||
+      !sourceLanguage ||
+      sourceLanguage === targetLanguage
+    ) {
+      return null;
+    }
+    return {
+      sourceLanguage,
+      targetLanguage,
+      direction: `${sourceLanguage}-to-${targetLanguage}`,
+      systemInstruction: buildInterpreterInstruction(
+        sourceLanguage,
+        targetLanguage,
+      ),
+    };
   }
 
-  if (value === 'en-ur') {
-    return 'en-to-ur';
-  }
+  const value = typeof direction === 'string' ? direction : 'auto-to-en';
+  const aliases: Record<string, string> = {
+    'ur-en': 'ur-to-en',
+    'en-ur': 'en-to-ur',
+    'es-en': 'es-to-en',
+    'en-es': 'en-to-es',
+    'bn-en': 'bn-to-en',
+    'en-bn': 'en-to-bn',
+  };
+  const normalizedDirection = aliases[value] ?? value;
+  const separator = normalizedDirection.lastIndexOf('-to-');
+  if (separator < 1) return null;
 
-  return isTranslationDirection(value) ? value : null;
+  const targetLanguage = normalizeTargetLanguage(
+    normalizedDirection.slice(separator + 4),
+  );
+  const sourceLanguage = normalizeSourceLanguage(
+    normalizedDirection.slice(0, separator),
+  );
+  if (
+    !targetLanguage ||
+    !sourceLanguage ||
+    sourceLanguage === targetLanguage
+  ) {
+    return null;
+  }
+  return {
+    sourceLanguage,
+    targetLanguage,
+    direction: normalizedDirection,
+    systemInstruction: buildInterpreterInstruction(
+      sourceLanguage,
+      targetLanguage,
+    ),
+  };
+}
+
+function normalizeSourceLanguage(value: unknown): SourceLanguageCode | null {
+  if (typeof value !== 'string') return null;
+  if (value.trim().toLowerCase() === 'auto') return 'auto';
+  return normalizeTargetLanguage(value);
+}
+
+function normalizeTargetLanguage(value: string): SupportedLanguageCode | null {
+  const match = SUPPORTED_TARGET_LANGUAGES.find(
+    (language) => language.toLowerCase() === value.trim().toLowerCase(),
+  );
+  return match && SUPPORTED_TARGET_LANGUAGE_SET.has(match) ? match : null;
+}
+
+/**
+ * System instruction for one route of an interpreter session.
+ *
+ * A route renders everything it hears into `targetLanguage`; `translationConfig`
+ * has no source-language field, so `sourceLanguage` is only the other language
+ * of the conversation. It is named as context for recognition, deliberately
+ * without telling the model to *expect* it: a route told to expect one language
+ * identifies speech as that language even when it is not, which defeats
+ * `echoTargetLanguage: false` and makes the route read the speaker's own words
+ * back to them.
+ *
+ * Mirrors `interpreterInstruction` in the frontend's `src/types.ts`.
+ */
+function buildInterpreterInstruction(
+  sourceLanguage: SourceLanguageCode,
+  targetLanguage: SupportedLanguageCode,
+): string {
+  const pair =
+    sourceLanguage === 'auto'
+      ? 'You are the interpreter for a live conversation.'
+      : `You are the interpreter for a two-way conversation between language code ${sourceLanguage} and language code ${targetLanguage} speakers.`;
+
+  return `${pair} Translate every utterance into language code ${targetLanguage}. Identify the spoken language from the audio itself for each utterance, and never carry a previous language guess into a new turn. When the speaker is already speaking language code ${targetLanguage}, stay silent and produce no audio.`;
 }
 
 function normalizeText(value: unknown): string {
@@ -521,10 +738,6 @@ function getErrorStatus(error: unknown): number {
   }
 
   return 500;
-}
-
-function isTranslationDirection(value: string): value is TranslationDirection {
-  return value === 'ur-to-en' || value === 'en-to-ur';
 }
 
 function getGeminiApiKey(): string {

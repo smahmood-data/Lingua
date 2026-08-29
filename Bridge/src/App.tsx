@@ -5,24 +5,89 @@ import { TopBar } from './components/TopBar'
 import { Transcript } from './components/Transcript'
 import { mockTranscripts } from './data/mockTranscripts'
 import { useControlKeyboard } from './hooks/useControlKeyboard'
+import { useTranslationSession } from './hooks/useTranslationSession'
+import type {
+  ConversationTurn,
+  SessionError,
+  SessionState,
+} from './lib/translation'
 import {
+  AUTO_SOURCE_LANGUAGE,
   controlIds,
+  languageCodesMatch,
+  languageMetaFromCode,
   type AppStatus,
   type ControlId,
-  type Direction,
+  type SourceLanguageCode,
+  type SupportedLanguageCode,
+  type TranscriptLine,
 } from './types'
 import './App.css'
 
-function App() {
-  // State is data that can change while the app is running. Updating it rerenders the UI.
-  const [direction, setDirection] = useState<Direction>('ur-en')
-  const [status, setStatus] = useState<AppStatus>('ready')
+function toAppStatus(
+  state: SessionState,
+  error: SessionError | null,
+): AppStatus {
+  if (error?.code === 'microphone-permission-denied') return 'denied'
+  if (error?.code === 'live-disconnected') return 'disconnected'
+  if (state === 'error') return 'error'
+  if (state === 'connecting') return 'loading'
+  if (state === 'listening' || state === 'translating' || state === 'playing') {
+    return 'listening'
+  }
+  return 'ready'
+}
 
-  // Refs point to real DOM controls so keyboard navigation can move focus.
-  // Callbacks are created here so child components never mutate the ref map.
+/**
+ * One conversation turn is one row. There is nothing to pair up here: the
+ * coordinator already decided which words belong to which utterance, so the UI
+ * never has to guess that a translation goes with the line above it.
+ */
+function toTranscriptLines(
+  turns: ConversationTurn[],
+  targetLanguage: SupportedLanguageCode,
+): TranscriptLine[] {
+  return turns.map((turn, index) => {
+    const originalLanguage = languageMetaFromCode(turn.sourceLanguage ?? 'und')
+    const translatedLanguage = languageMetaFromCode(
+      turn.targetLanguage ?? targetLanguage,
+    )
+
+    return {
+      id: index + 1,
+      speaker: `${originalLanguage.label} speaker`,
+      originalLanguage: originalLanguage.label,
+      originalLanguageCode: originalLanguage.code,
+      translatedLanguage: translatedLanguage.label,
+      translatedLanguageCode: translatedLanguage.code,
+      original: turn.sourceText,
+      translated: turn.translatedText,
+    }
+  })
+}
+
+function App() {
+  const {
+    state,
+    error,
+    turns,
+    interimTranscript,
+    isActive,
+    sourceLanguage,
+    targetLanguage,
+    start,
+    setLanguages,
+    stop,
+  } = useTranslationSession()
+
+  const [previewStatus, setPreviewStatus] = useState<AppStatus | null>(null)
+  const liveStatus = toAppStatus(state, error)
+  const usingPreview = state === 'stopped' && !error && previewStatus !== null
+  const status = usingPreview ? previewStatus : liveStatus
+
   const controlRefs = useRef<Record<ControlId, HTMLElement | null>>({
-    'en-ur': null,
-    'ur-en': null,
+    'source-language': null,
+    'target-language': null,
     start: null,
     stop: null,
     demo: null,
@@ -42,56 +107,91 @@ function App() {
     return (controlId: ControlId) => callbacks[controlId]
   }, [])
 
-  // These values are derived from direction rather than stored separately.
-  const isListening = status === 'listening'
-  const sourceLanguage = direction === 'en-ur' ? 'English' : 'Urdu'
-  const mockTranscript = mockTranscripts[direction]
+  const isListening = isActive
+  const liveLines = toTranscriptLines(turns, targetLanguage)
+  const lines = usingPreview ? mockTranscripts : liveLines
 
-  const selectDirection = useCallback((nextDirection: Direction) => {
-    setDirection(nextDirection)
-  }, [])
+  const selectSourceLanguage = useCallback(
+    (nextSource: SourceLanguageCode) => {
+      let nextTarget = targetLanguage
+      if (
+        nextSource !== AUTO_SOURCE_LANGUAGE &&
+        languageCodesMatch(nextSource, targetLanguage)
+      ) {
+        nextTarget =
+          sourceLanguage !== AUTO_SOURCE_LANGUAGE &&
+          !languageCodesMatch(sourceLanguage, nextSource)
+            ? sourceLanguage
+            : nextSource === 'en'
+              ? 'es'
+              : 'en'
+      }
+      void setLanguages(nextSource, nextTarget)
+    },
+    [setLanguages, sourceLanguage, targetLanguage],
+  )
+
+  const selectTargetLanguage = useCallback(
+    (nextLanguage: SupportedLanguageCode) => {
+      const nextSource =
+        sourceLanguage !== AUTO_SOURCE_LANGUAGE &&
+        languageCodesMatch(sourceLanguage, nextLanguage)
+          ? targetLanguage
+          : sourceLanguage
+      void setLanguages(nextSource, nextLanguage)
+    },
+    [setLanguages, sourceLanguage, targetLanguage],
+  )
 
   const { handleDemoSelectKeyDown } = useControlKeyboard({
-    direction,
     isListening,
-    onSelectDirection: selectDirection,
     controlRefs,
     demoDetailsRef,
   })
 
   function startInterpreter() {
-    // This is mock behavior for now; the audio issues (#2/#3) will request
-    // the microphone and open the Live session here instead.
-    setStatus('listening')
+    setPreviewStatus(null)
+    void start(sourceLanguage, targetLanguage)
   }
 
   function stopInterpreter() {
-    setStatus('ready')
+    setPreviewStatus(null)
+    void stop()
   }
 
   return (
     <div className="app-shell">
-      <TopBar status={status} />
+      <TopBar
+        status={status}
+        sourceLanguage={sourceLanguage}
+        targetLanguage={targetLanguage}
+      />
 
       <main className="app-main">
-        <StatusNotice status={status} />
+        <StatusNotice status={status} detail={error?.message} />
         <Transcript
           status={status}
-          lines={mockTranscript}
+          lines={lines}
           sourceLanguage={sourceLanguage}
+          targetLanguage={targetLanguage}
+          interimText={interimTranscript?.text}
+          isPlaying={state === 'playing'}
+          isTranslating={state === 'translating'}
         />
       </main>
 
       <ControlDock
-        direction={direction}
+        sourceLanguage={sourceLanguage}
+        targetLanguage={targetLanguage}
         status={status}
         isListening={isListening}
         registerControl={registerControl}
         demoDetailsRef={demoDetailsRef}
-        onSelectDirection={selectDirection}
+        onSelectSourceLanguage={selectSourceLanguage}
+        onSelectTargetLanguage={selectTargetLanguage}
         onStart={startInterpreter}
         onStop={stopInterpreter}
-        onStatusChange={setStatus}
+        onStatusChange={setPreviewStatus}
         onDemoSelectKeyDown={handleDemoSelectKeyDown}
       />
     </div>

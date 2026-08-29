@@ -12,19 +12,22 @@ export type {
 } from './translationSession'
 
 export type {
+  ConversationPhase,
+  ConversationTurn,
   InterimTranscript,
   SessionError,
   SessionErrorCode,
+  SessionLifecycle,
   SessionState,
-  TranscriptKind,
-  TranscriptTurn,
-  TranslationDirection,
+  SourceLanguageCode,
+  SupportedLanguageCode,
   TranslationSessionSnapshot,
+  TurnStatus,
 } from './types'
 
-export { canStart, isSessionActive } from './sessionMachine'
+export { canStart, deriveSessionState, isSessionActive } from './sessionMachine'
 export { SESSION_ERROR_CODES } from './errors'
-export { languagesForDirection } from './config'
+export { DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE } from './config'
 
 export {
   createLiveTokenProvider,

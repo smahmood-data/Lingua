@@ -1,6 +1,6 @@
 import { EPHEMERAL_TOKEN_PREFIX, LIVE_TOKEN_ENDPOINT } from './config'
 import { sessionError } from './errors'
-import type { TranslationDirection } from './types'
+import type { SourceLanguageCode, SupportedLanguageCode } from './types'
 
 /**
  * Adapter for the ephemeral-token endpoint owned by Issue #1.
@@ -8,11 +8,8 @@ import type { TranslationDirection } from './types'
  * This is the only file that knows the wire shape of `/api/live-token`. It is
  * written against the contract now provided by the merged issue #1 backend:
  *
- *   GET /api/live-token?direction=ur-to-en
- *   -> { token, expiresAt, newSessionExpiresAt, model, direction }
- *
- * `direction` is required there; the route answers 400 without it. If #1's
- * contract shifts before it merges, this file is the only thing to update.
+ *   GET /api/live-token?target=en
+ *   -> { token, expiresAt, newSessionExpiresAt, model, targetLanguage }
  *
  * The browser only ever holds the short-lived token this returns. The long-lived
  * `GEMINI_API_KEY` stays on the server and is never read here.
@@ -24,11 +21,14 @@ export interface LiveToken {
   model?: string
   /** ISO timestamp, when the server reports one. Informational only. */
   expiresAt?: string
+  /** Exact instruction included in the server-side token constraints. */
+  systemInstruction: string
 }
 
 export interface LiveTokenRequest {
   signal: AbortSignal
-  direction: TranslationDirection
+  sourceLanguage: SourceLanguageCode
+  targetLanguage: SupportedLanguageCode
 }
 
 export type LiveTokenProvider = (request: LiveTokenRequest) => Promise<LiveToken>
@@ -54,8 +54,13 @@ export function parseLiveTokenResponse(body: unknown): LiveToken {
 
   const root = body as Record<string, unknown>
   const token = readString(root, 'token')
+  const systemInstruction = readString(root, 'systemInstruction')
 
-  if (!token || !token.startsWith(EPHEMERAL_TOKEN_PREFIX)) {
+  if (
+    !token ||
+    !token.startsWith(EPHEMERAL_TOKEN_PREFIX) ||
+    !systemInstruction
+  ) {
     throw sessionError('token-request-failed')
   }
 
@@ -63,6 +68,7 @@ export function parseLiveTokenResponse(body: unknown): LiveToken {
     token,
     model: readString(root, 'model'),
     expiresAt: readString(root, 'expiresAt'),
+    systemInstruction,
   }
 }
 
@@ -80,8 +86,12 @@ export function parseLiveTokenResponse(body: unknown): LiveToken {
 export function createLiveTokenProvider(
   endpoint: string = LIVE_TOKEN_ENDPOINT,
 ): LiveTokenProvider {
-  return async ({ signal, direction }) => {
-    const url = `${endpoint}?direction=${encodeURIComponent(direction)}`
+  return async ({ signal, sourceLanguage, targetLanguage }) => {
+    const parameters = new URLSearchParams({
+      source: sourceLanguage,
+      target: targetLanguage,
+    })
+    const url = `${endpoint}?${parameters.toString()}`
 
     let response: Response
     try {

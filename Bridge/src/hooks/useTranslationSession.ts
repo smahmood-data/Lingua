@@ -1,34 +1,47 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { TranslationSession, isSessionActive } from '../lib/translation'
 import type {
+  ConversationTurn,
   InterimTranscript,
   SessionError,
   SessionState,
-  TranscriptTurn,
-  TranslationDirection,
+  SourceLanguageCode,
+  SupportedLanguageCode,
   TranslationSessionOptions,
 } from '../lib/translation'
 
 export interface UseTranslationSessionResult {
-  /** `connecting`, `listening`, `translating`, `stopped`, or `error`. */
+  /** `connecting`, `listening`, `translating`, `playing`, `stopped`, or `error`. */
   state: SessionState
-  /** Selected direction for the next or current session. */
-  direction: TranslationDirection
+  /** Selected output language for the next or current session. */
+  targetLanguage: SupportedLanguageCode
+  /** Selected input language, or per-utterance automatic detection. */
+  sourceLanguage: SourceLanguageCode
   /** Last failure, cleared when a new session starts. `null` while healthy. */
   error: SessionError | null
-  /** Finalised turns for this browser session only. Never persisted. */
-  transcript: TranscriptTurn[]
+  /** Conversation history, including the turn in progress. Never persisted. */
+  turns: ConversationTurn[]
   /** Live partial caption while someone is speaking, or `null`. */
   interimTranscript: InterimTranscript | null
   /** True while microphone and Live resources are held. */
   isActive: boolean
   /** Start a session. Repeated calls while active are ignored. */
-  start: (direction?: TranslationDirection) => Promise<void>
-  /** Select a direction, stopping an active session before it changes. */
-  setDirection: (direction: TranslationDirection) => Promise<void>
+  start: (
+    sourceLanguage?: SourceLanguageCode,
+    targetLanguage?: SupportedLanguageCode,
+  ) => Promise<void>
+  /** Select the input language, stopping an active session before it changes. */
+  setSourceLanguage: (sourceLanguage: SourceLanguageCode) => Promise<void>
+  /** Select an output language, stopping an active session before it changes. */
+  setTargetLanguage: (targetLanguage: SupportedLanguageCode) => Promise<void>
+  /** Change both sides as one operation. */
+  setLanguages: (
+    sourceLanguage: SourceLanguageCode,
+    targetLanguage: SupportedLanguageCode,
+  ) => Promise<void>
   /** Stop and release everything. Safe to call more than once. */
   stop: () => Promise<void>
-  /** Drop the transcript without touching the session. */
+  /** Drop the conversation history without touching the session. */
   clearTranscript: () => void
 }
 
@@ -36,7 +49,7 @@ export interface UseTranslationSessionResult {
  * React binding for the live translation pipeline.
  *
  * Options are read once, when the session is created; later changes are ignored.
- * Pass `direction` to `start()` instead of re-rendering with new options.
+ * Pass the language pair to `start()` instead of re-rendering with new options.
  */
 export function useTranslationSession(
   options: TranslationSessionOptions = {},
@@ -59,11 +72,27 @@ export function useTranslationSession(
   }, [session])
 
   const start = useCallback(
-    (direction?: TranslationDirection) => session.start(direction),
+    (
+      sourceLanguage?: SourceLanguageCode,
+      targetLanguage?: SupportedLanguageCode,
+    ) => session.start(sourceLanguage, targetLanguage),
     [session],
   )
-  const setDirection = useCallback(
-    (direction: TranslationDirection) => session.setDirection(direction),
+  const setSourceLanguage = useCallback(
+    (sourceLanguage: SourceLanguageCode) =>
+      session.setSourceLanguage(sourceLanguage),
+    [session],
+  )
+  const setTargetLanguage = useCallback(
+    (targetLanguage: SupportedLanguageCode) =>
+      session.setTargetLanguage(targetLanguage),
+    [session],
+  )
+  const setLanguages = useCallback(
+    (
+      sourceLanguage: SourceLanguageCode,
+      targetLanguage: SupportedLanguageCode,
+    ) => session.setLanguages(sourceLanguage, targetLanguage),
     [session],
   )
   const stop = useCallback(() => session.stop(), [session])
@@ -71,13 +100,16 @@ export function useTranslationSession(
 
   return {
     state: snapshot.state,
-    direction: snapshot.direction,
+    sourceLanguage: snapshot.sourceLanguage,
+    targetLanguage: snapshot.targetLanguage,
     error: snapshot.error,
-    transcript: snapshot.transcript,
+    turns: snapshot.turns,
     interimTranscript: snapshot.interimTranscript,
     isActive: isSessionActive(snapshot.state),
     start,
-    setDirection,
+    setSourceLanguage,
+    setTargetLanguage,
+    setLanguages,
     stop,
     clearTranscript,
   }

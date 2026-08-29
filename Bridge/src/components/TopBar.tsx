@@ -1,8 +1,14 @@
+import {
+  AUTO_SOURCE_LANGUAGE,
+  languageMetaFromCode,
+  type AppStatus,
+  type SourceLanguageCode,
+  type SupportedLanguageCode,
+} from '../types'
 import { statusMeta } from '../data/mockTranscripts'
-import type { AppStatus } from '../types'
 import './TopBar.css'
 
-function SwapGlyph() {
+function RouteGlyph() {
   return (
     <svg
       className="pair-swap"
@@ -13,7 +19,7 @@ function SwapGlyph() {
       aria-hidden="true"
     >
       <path
-        d="M4.5 3.5h8m0 0-2.25-2.25M12.5 3.5 10.25 5.75M11.5 12.5h-8m0 0 2.25 2.25M3.5 12.5l2.25-2.25"
+        d="M2.5 5.5h10m0 0-2.5-2.5m2.5 2.5L10 8M13.5 10.5h-10m0 0L6 8m-2.5 2.5L6 13"
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"
@@ -38,7 +44,22 @@ function StatusIndicator({ status }: { status: AppStatus }) {
   )
 }
 
-export function TopBar({ status }: { status: AppStatus }) {
+export function TopBar({
+  status,
+  sourceLanguage,
+  targetLanguage,
+}: {
+  status: AppStatus
+  sourceLanguage: SourceLanguageCode
+  targetLanguage: SupportedLanguageCode
+}) {
+  const source =
+    sourceLanguage === AUTO_SOURCE_LANGUAGE
+      ? null
+      : languageMetaFromCode(sourceLanguage)
+  const target = languageMetaFromCode(targetLanguage)
+  const sourceLabel = source?.label ?? 'Auto-detect'
+
   return (
     <header className="topbar">
       <div className="brand">
@@ -49,12 +70,17 @@ export function TopBar({ status }: { status: AppStatus }) {
         <h1 className="brand-name">Lingua</h1>
       </div>
 
-      <p className="language-pair" aria-label="Translating between English and Urdu">
+      <p
+        className="language-pair"
+        aria-label={`${sourceLabel} and ${target.label} two-way translation`}
+      >
         <span className="pair-full">
-          English <SwapGlyph /> <span lang="ur">اردو</span>
+          {sourceLabel} <RouteGlyph />{' '}
+          <span lang={target.htmlLang}>{target.label}</span>
         </span>
         <span className="pair-short" aria-hidden="true">
-          EN <SwapGlyph /> UR
+          {source?.code.toUpperCase() ?? 'Auto'} <RouteGlyph />{' '}
+          {target.code.toUpperCase()}
         </span>
       </p>
 

@@ -1,16 +1,25 @@
-import type { AppStatus, ControlId, Direction } from '../types'
+import {
+  AUTO_SOURCE_LANGUAGE,
+  supportedLanguages,
+  type AppStatus,
+  type ControlId,
+  type SourceLanguageCode,
+  type SupportedLanguageCode,
+} from '../types'
 import { DemoStates } from './DemoStates'
 import './ControlDock.css'
 
 type Props = {
-  direction: Direction
+  sourceLanguage: SourceLanguageCode
+  targetLanguage: SupportedLanguageCode
   status: AppStatus
   isListening: boolean
   registerControl: (
     controlId: ControlId,
   ) => (element: HTMLElement | null) => void
   demoDetailsRef: React.RefObject<HTMLDetailsElement | null>
-  onSelectDirection: (direction: Direction) => void
+  onSelectSourceLanguage: (language: SourceLanguageCode) => void
+  onSelectTargetLanguage: (language: SupportedLanguageCode) => void
   onStart: () => void
   onStop: () => void
   onStatusChange: (status: AppStatus) => void
@@ -39,15 +48,16 @@ function MicIcon() {
   )
 }
 
-// The dock keeps the two decisions that matter — which direction is live,
-// and whether the conversation is running — reachable at all times.
+// The dock keeps the output language and microphone controls reachable.
 export function ControlDock({
-  direction,
+  sourceLanguage,
+  targetLanguage,
   status,
   isListening,
   registerControl,
   demoDetailsRef,
-  onSelectDirection,
+  onSelectSourceLanguage,
+  onSelectTargetLanguage,
   onStart,
   onStop,
   onStatusChange,
@@ -57,28 +67,48 @@ export function ControlDock({
     <section className="dock" aria-label="Conversation controls">
       <div className="dock-row">
         <fieldset className="direction-field">
-          <legend>Now translating</legend>
-          <div className="segmented">
-            <button
-              type="button"
-              ref={registerControl('en-ur')}
-              data-direction="en-ur"
-              className={`segment ${direction === 'en-ur' ? 'segment-active' : ''}`}
-              aria-pressed={direction === 'en-ur'}
-              onClick={() => onSelectDirection('en-ur')}
-            >
-              English <span aria-hidden="true">→</span> Urdu
-            </button>
-            <button
-              type="button"
-              ref={registerControl('ur-en')}
-              data-direction="ur-en"
-              className={`segment ${direction === 'ur-en' ? 'segment-active' : ''}`}
-              aria-pressed={direction === 'ur-en'}
-              onClick={() => onSelectDirection('ur-en')}
-            >
-              Urdu <span aria-hidden="true">→</span> English
-            </button>
+          <legend>Translation languages</legend>
+          <div className="language-route">
+            <label className="language-source">
+              <span className="language-source-label">From</span>
+              <select
+                ref={registerControl('source-language')}
+                value={sourceLanguage}
+                onChange={(event) =>
+                  onSelectSourceLanguage(
+                    event.target.value as SourceLanguageCode,
+                  )
+                }
+              >
+                <option value={AUTO_SOURCE_LANGUAGE}>Auto-detect</option>
+                {supportedLanguages.map((language) => (
+                  <option key={language.code} value={language.code}>
+                    {language.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="language-arrow" aria-hidden="true">
+              ⇄
+            </span>
+            <label className="language-target">
+              <span className="language-target-label">Translate into</span>
+              <select
+                ref={registerControl('target-language')}
+                value={targetLanguage}
+                onChange={(event) =>
+                  onSelectTargetLanguage(
+                    event.target.value as SupportedLanguageCode,
+                  )
+                }
+              >
+                {supportedLanguages.map((language) => (
+                  <option key={language.code} value={language.code}>
+                    {language.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </fieldset>
 
@@ -107,7 +137,6 @@ export function ControlDock({
 
       <div className="dock-subrow">
         <p className="keyboard-hint">
-          <kbd>←</kbd> <kbd>→</kbd> direction <span aria-hidden="true">·</span>{' '}
           <kbd>↑</kbd> <kbd>↓</kbd> controls <span aria-hidden="true">·</span>{' '}
           <kbd>Enter</kbd> to select
         </p>

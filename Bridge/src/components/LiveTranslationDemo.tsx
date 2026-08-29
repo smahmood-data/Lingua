@@ -1,28 +1,22 @@
 import type { CSSProperties } from 'react'
 import { useTranslationSession } from '../hooks/useTranslationSession'
-import type { SessionState, TranslationDirection } from '../lib/translation'
+import type { SessionState } from '../lib/translation'
+import {
+  AUTO_SOURCE_LANGUAGE,
+  languageMetaFromCode,
+  supportedLanguages,
+  type SourceLanguageCode,
+  type SupportedLanguageCode,
+} from '../types'
 
-/**
- * Temporary harness for manually exercising both translation directions in a
- * browser. It is intentionally plain: the real interpreter screen is Issue #4,
- * and this component should be deleted once that lands.
- *
- * Reachable at `/?live=1` — see `src/main.tsx`.
- */
+/** Development-only harness reachable at `/?live=1`. */
 
-const DIRECTION_LABELS: Record<
-  TranslationDirection,
-  { label: string; source: string; target: string }
-> = {
-  'ur-to-en': { label: 'Urdu → English', source: 'Urdu', target: 'English' },
-  'en-to-ur': { label: 'English → Urdu', source: 'English', target: 'Urdu' },
-}
-
-function stateLabel(state: SessionState, direction: TranslationDirection): string {
-  const languages = DIRECTION_LABELS[direction]
+function stateLabel(state: SessionState, targetLanguage: SupportedLanguageCode) {
+  const target = languageMetaFromCode(targetLanguage).label
   if (state === 'connecting') return 'Connecting…'
-  if (state === 'listening') return `Listening for ${languages.source}`
-  if (state === 'translating') return `Playing ${languages.target} translation`
+  if (state === 'listening') return 'Listening with automatic language detection'
+  if (state === 'translating') return 'Interpreting the last utterance…'
+  if (state === 'playing') return `Playing the ${target} translation`
   if (state === 'error') return 'Error'
   return 'Stopped'
 }
@@ -55,44 +49,66 @@ export function LiveTranslationDemo() {
   const {
     state,
     error,
-    transcript,
+    turns,
     interimTranscript,
     isActive,
-    direction,
+    sourceLanguage,
+    targetLanguage,
     start,
-    setDirection,
+    setLanguages,
     stop,
     clearTranscript,
   } = useTranslationSession()
-
   return (
     <main style={page}>
-      <h1>{DIRECTION_LABELS[direction].label} live translation</h1>
+      <h1>Two-way live translation</h1>
       <p>
-        Developer harness for issues #2 and #3. Choose who is speaking, then start
-        the session. Headphones are recommended so translated output is not picked
-        up again by the microphone.
+        Developer harness for a two-way interpreted conversation. Selecting a
+        source pins the language pair; auto mode learns the other language and
+        can correct that choice when clearer speech disagrees.
       </p>
 
       <div style={controls}>
         <label>
-          Direction:{' '}
+          From:{' '}
           <select
-            value={direction}
+            value={sourceLanguage}
             onChange={(event) =>
-              void setDirection(event.target.value as TranslationDirection)
+              void setLanguages(
+                event.target.value as SourceLanguageCode,
+                targetLanguage,
+              )
             }
           >
-            {Object.entries(DIRECTION_LABELS).map(([value, copy]) => (
-              <option key={value} value={value}>
-                {copy.label}
+            <option value={AUTO_SOURCE_LANGUAGE}>Auto-detect</option>
+            {supportedLanguages.map((language) => (
+              <option key={language.code} value={language.code}>
+                {language.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Translate into:{' '}
+          <select
+            value={targetLanguage}
+            onChange={(event) =>
+              void setLanguages(
+                sourceLanguage,
+                event.target.value as SupportedLanguageCode,
+              )
+            }
+          >
+            {supportedLanguages.map((language) => (
+              <option key={language.code} value={language.code}>
+                {language.label}
               </option>
             ))}
           </select>
         </label>
         <button
           type="button"
-          onClick={() => void start(direction)}
+          onClick={() => void start(sourceLanguage, targetLanguage)}
           disabled={isActive}
         >
           Start session
@@ -103,12 +119,12 @@ export function LiveTranslationDemo() {
         <button
           type="button"
           onClick={clearTranscript}
-          disabled={transcript.length === 0}
+          disabled={turns.length === 0}
         >
           Clear transcript
         </button>
         <span aria-live="polite">
-          <strong>Status:</strong> {stateLabel(state, direction)}
+          <strong>Status:</strong> {stateLabel(state, targetLanguage)}
         </span>
       </div>
 
@@ -122,17 +138,27 @@ export function LiveTranslationDemo() {
 
       <section style={panel}>
         <h2>Transcript</h2>
-        {transcript.length === 0 && !interimTranscript ? (
+        {turns.length === 0 && !interimTranscript ? (
           <p>No transcript yet. Gemini sends these once it hears speech.</p>
         ) : (
           <ol>
-            {transcript.map((turn) => (
-              <li key={turn.id} lang={turn.languageCode}>
+            {turns.map((turn) => (
+              <li key={turn.id}>
                 <strong>
-                  {turn.kind === 'source' ? 'Heard' : 'Translated'} (
-                  {turn.languageCode}){turn.isFinal ? '' : ' …'}
+                  Heard ({turn.sourceLanguage ?? 'detecting'})
+                  {turn.status === 'complete' ? '' : ` — ${turn.status}…`}
                 </strong>
-                <div>{turn.text}</div>
+                <div lang={turn.sourceLanguage ?? undefined}>
+                  {turn.sourceText}
+                </div>
+                {turn.translatedText ? (
+                  <>
+                    <strong>Translated ({turn.targetLanguage})</strong>
+                    <div lang={turn.targetLanguage ?? undefined}>
+                      {turn.translatedText}
+                    </div>
+                  </>
+                ) : null}
               </li>
             ))}
           </ol>

@@ -4,7 +4,13 @@ import './StatusNotice.css'
 
 // Problem states get one clear inline notice with a next step.
 // Loading is handled by the transcript's connecting state instead.
-export function StatusNotice({ status }: { status: AppStatus }) {
+export function StatusNotice({
+  status,
+  detail,
+}: {
+  status: AppStatus
+  detail?: string
+}) {
   const meta = statusMeta[status]
   if (!meta.noticeTitle) return null
 
@@ -15,7 +21,7 @@ export function StatusNotice({ status }: { status: AppStatus }) {
     >
       <div className="notice-text">
         <p className="notice-title">{meta.noticeTitle}</p>
-        <p className="notice-detail">{meta.noticeDetail}</p>
+        <p className="notice-detail">{detail ?? meta.noticeDetail}</p>
       </div>
     </div>
   )

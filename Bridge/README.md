@@ -29,9 +29,9 @@ npm run build
 
 Do not put Gemini credentials in frontend code or in a `VITE_*` variable. The backend dependencies are installed with `npm ci` from `../backend`, and its key remains server-side.
 
-## Live translation (issues #2 and #3)
+## Live translation
 
-The shared Urdu ↔ English audio pipeline lives in [`src/lib/translation/`](./src/lib/translation)
+The auto-detected speech translation pipeline lives in [`src/lib/translation/`](./src/lib/translation)
 and is consumed through the `useTranslationSession` hook:
 
 ```tsx
@@ -39,7 +39,7 @@ import { useTranslationSession } from './hooks/useTranslationSession'
 
 const {
   state, error, transcript, interimTranscript,
-  isActive, start, setDirection, stop, clearTranscript,
+  isActive, targetLanguage, start, setTargetLanguage, stop, clearTranscript,
 } = useTranslationSession()
 ```
 
@@ -55,7 +55,8 @@ const {
   partial caption while someone is still speaking. It is replaced as they talk
   and cleared once the finalised turn for that speech arrives. Render it as a
   live caption line, not as transcript history.
-- `setDirection()` stops an active session before selecting the reverse direction.
+- `targetLanguage` defaults to English. Gemini detects the input language.
+- `setTargetLanguage()` stops an active session before changing the output.
 - `start()` and `stop()` are idempotent. Repeated calls cannot open a second
   microphone or a second Live session, and a session can always be restarted
   after stopping or failing without reloading the page.
@@ -64,24 +65,24 @@ Nothing is persisted: the transcript exists only for the current page load.
 
 ### Dependency on the server
 
-The browser connects to Gemini Live with a short-lived ephemeral token from the
-merged issue #1 backend's `GET /api/live-token`. The long-lived `GEMINI_API_KEY`
-stays on the server and is never read by frontend code. `vite.config.ts` proxies
-`/api` to `http://localhost:3001` in development, so no frontend environment
-variable is needed. A deployment that serves the API from another origin should
-pass an absolute URL to `createLiveTokenProvider()` rather than add a build-time
-variable.
+The browser connects to Gemini Live with a short-lived ephemeral token from
+`GET /api/live-token`. The long-lived `GEMINI_API_KEY` stays on the server and
+is never read by frontend code. `vite.config.ts` proxies `/api` to
+`http://localhost:3001` in development. On Vercel, `api/live-token.ts` provides
+the same route as a serverless function when the project root is this `Bridge`
+directory. Set `GEMINI_API_KEY` in Vercel's server-side environment settings;
+no frontend environment variable is needed.
 
 `src/lib/translation/tokenProvider.ts` is the only frontend file that knows the
 wire shape. It consumes the merged issue #1 contract:
 
 ```
-GET /api/live-token?direction=ur-to-en | en-to-ur
--> { token, expiresAt, newSessionExpiresAt, model, direction }
+GET /api/live-token?target=en
+-> { token, expiresAt, newSessionExpiresAt, model, targetLanguage }
 ```
 
-The frontend always sends a canonical `direction` value. The backend also accepts
-the legacy `ur-en`/`en-ur` spellings for compatibility. The `token` value must
+The Express backend still accepts legacy direction parameters for compatibility.
+The `token` value must
 start with `auth_tokens/`: `@google/genai` decides how to authenticate from that
 prefix alone and sends anything else as a plain API key in the WebSocket URL, so
 the provider rejects non-ephemeral values instead of forwarding them.
@@ -92,10 +93,12 @@ The merged contract and configuration now line up:
    Live Translate and ephemeral-token contract. `@google/genai` 2.19.0 may log
    an experimental-support warning for `v1beta`, but it still selects the
    constrained WebSocket method from the `auth_tokens/` prefix.
-2. **Locked translation config.** The backend constrains `targetLanguageCode`,
-   transcription, audio, and `echoTargetLanguage` in the token's
-   `bidiGenerateContentSetup`. The client sends the same translation settings;
-   the server constraint remains authoritative.
+2. **Locked translation config.** The server constrains `targetLanguageCode`,
+   transcription, audio, and `echoTargetLanguage` in the ephemeral token. The
+   July 2026 guide names this field `liveConnectConstraints`, while some current
+   `v1beta` accounts still accept only `bidiGenerateContentSetup`; the token
+   routes prefer the working legacy field and retry the documented successor
+   when Google retires it.
 3. **Model.** The backend template, backend fallback, and frontend fallback use
    `gemini-3.5-live-translate-preview`, the dedicated Live Translate model. The
    server's returned `model` is used when present.
@@ -109,11 +112,60 @@ audio is not picked up by the microphone again.
 
 1. Start `../backend` with a valid `GEMINI_API_KEY`, then run `npm run dev` here.
 2. Open `/?live=1` and select **Start session**.
-3. Grant microphone access and speak a short Urdu phrase; confirm English audio
-   plays and Urdu/English transcript lines appear.
-4. Select **English → Urdu** while active and confirm the session stops and the
-   browser microphone indicator clears.
+3. Leave the target on **English**, grant microphone access, and speak a short
+   Urdu, French, Chinese, or Spanish phrase. Confirm English audio plays and the
+   detected source language is labelled in the transcript.
+4. Change the target to **Urdu** while active and confirm the session stops and
+   the browser microphone indicator clears.
 5. Start again, speak a short English phrase, and confirm Urdu audio and
    English/Urdu transcript lines appear.
 6. Stop and start again to confirm retry works without reloading.
 7. Block microphone access and confirm a recoverable error is shown.
+
+### Live diagnostic trace
+
+The interpreter can record what it actually did, for the failures that only
+appear in a real browser with a real microphone in a real room. It is off by
+default and records nothing until it is asked for.
+
+Enable it with either:
+
+- `http://localhost:5173/?debugLive=1`, or
+- `localStorage.linguaDebugLive = '1'` before loading the page.
+
+Have the conversation, then read the trace from the browser console:
+
+```js
+copy(window.__linguaTrace)          // to the clipboard
+console.table(window.__linguaTrace) // or just look at it
+```
+
+Each entry is `{ t, event, detail }`, where `t` is milliseconds since the trace
+was enabled. It records route ids and targets, utterance and generation ids,
+turn open/close, which route claimed the speakers, playback start and end,
+barge-in, and every session state change. It deliberately records transcript
+*lengths* rather than transcript text, and never records tokens or audio, so a
+trace can be pasted into an issue as it is.
+
+#### Replaying a captured trace
+
+A saved trace can be put back through the real coordinator, which is how the
+`es → es` and ghost-turn regressions were found and fixed:
+
+```bash
+LINGUA_TRACE=~/lingua-live-trace.json npm test -- traceReplay
+```
+
+It asserts the product invariants against the recorded ordering — no row
+translating a language into itself, no row without a human source, nothing
+outside the configured pair. Set `LINGUA_TRACE_TARGET` and
+`LINGUA_TRACE_COUNTERPART` to match the session's selectors (they default to
+`en` and auto-detect). Without `LINGUA_TRACE` the test skips, so it never runs
+in CI.
+
+The trace also records, per event: route id and target, utterance and generation
+ids, turn owner, the route that actually interpreted, the resolved product-side
+language, the reported language code, the configured pair and current
+counterpart, whether a turn had source text, and every event dropped as stale
+(`stale`, with the id that was already committed) or as a readback
+(`hold-drop`). Still no transcript text, no audio, no tokens.
