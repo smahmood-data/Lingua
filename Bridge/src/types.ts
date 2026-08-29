@@ -1,30 +1,3 @@
-export type AppStatus =
-  | 'ready'
-  | 'listening'
-  | 'loading'
-  | 'disconnected'
-  | 'denied'
-  | 'error'
-
-export interface TranscriptTurn {
-  id: string
-  speaker: 'user' | 'model'
-  originalText: string
-  translatedText?: string
-  timestamp: string
-}
-
-export type TranscriptLine = {
-  id: number
-  speaker: string
-  originalLanguage: string
-  originalLanguageCode: string
-  translatedLanguage: string
-  translatedLanguageCode: string
-  original: string
-  translated: string
-}
-
 export interface ApiError {
   error: string
   message: string
@@ -335,30 +308,4 @@ export function interpreterInstruction(
       : `You are the interpreter for a two-way conversation between ${languageMetaFromCode(sourceLanguage).label} and ${target} speakers.`
 
   return `${pair} Translate every utterance into ${target}. Identify the spoken language from the audio itself for each utterance, and never carry a previous language guess into a new turn. When the speaker is already speaking ${target}, stay silent and produce no audio.`
-}
-
-export type ControlId =
-  | 'source-language'
-  | 'target-language'
-  | 'start'
-  | 'stop'
-  | 'demo'
-
-export const controlLayout: ControlId[][] = [
-  ['source-language', 'target-language'],
-  ['start', 'stop'],
-]
-
-export const controlIds: ControlId[] = [
-  'source-language',
-  'target-language',
-  'start',
-  'stop',
-  'demo',
-]
-
-export function isControlDisabled(controlId: ControlId, isListening: boolean) {
-  if (controlId === 'start') return isListening
-  if (controlId === 'stop') return !isListening
-  return false
 }

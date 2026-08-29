@@ -1,14 +1,26 @@
-/* App shell: a single calm surface — top bar, reading column, control dock. */
+/* One unified canvas: header, content, and the mic that travels between them.
+   No compartments, no dashboard dividers. */
 .app-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100svh;
+  overflow: hidden;
 }
 
 .app-main {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  padding-bottom: 120px;
+}
+
+.mode-idle .app-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.mode-session .app-main,
+.mode-ended .app-main {
+  padding-top: 4px;
 }

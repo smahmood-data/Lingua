@@ -1,0 +1,197 @@
+/* The conversation is the canvas: two people talking, one language per side.
+   Alignment, accent lines, and language colors carry the identity of each
+   participant — no chat bubbles, no cards. */
+.conversation {
+  width: min(100% - 48px, 1060px);
+  margin: 0 auto;
+  padding: 10px 0 24px;
+}
+
+.conversation-columns {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(28px, 5vw, 72px);
+  align-items: start;
+}
+
+/* A hairline down the middle of the gutter separates the two sides. */
+.conversation-columns::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--line);
+}
+
+.column-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0 12px;
+  background: linear-gradient(var(--paper) 78%, transparent);
+}
+
+.column-dot {
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--column-color);
+}
+
+.column-language {
+  color: var(--column-color);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.column-speaker {
+  color: var(--ink-mute);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.column-speaker::before {
+  content: '·';
+  margin-right: 8px;
+}
+
+.column-turns {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each turn hangs off a short accent line in its language's color. */
+.turn {
+  padding: 18px 0 20px 16px;
+  border-inline-start: 2px solid
+    color-mix(in srgb, var(--column-color) 55%, transparent);
+}
+
+.column-turns > li + li {
+  margin-top: 6px;
+}
+
+/* What was said: comfortable reading size, in the speaker's own script. */
+.turn-source {
+  color: var(--ink);
+  font-size: 1.06rem;
+  font-weight: 560;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+/* The interpretation stays attached to its source, set slightly quieter. */
+.turn-translation {
+  margin-top: 10px;
+}
+
+.turn-translation-label {
+  margin-bottom: 3px;
+  color: var(--translation-color);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.turn-translated {
+  color: var(--ink-soft);
+  font-size: 1.02rem;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+/* The turn currently being spoken back takes its language's color. */
+.turn[data-live] .turn-translated {
+  color: var(--ink);
+}
+
+/* Urdu (Nastaliq) needs generous line height and a size step up. */
+.urdu-text {
+  font-family: var(--font-urdu);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 2.05;
+  padding-block: 2px;
+}
+
+.turn-source.urdu-text {
+  font-size: 1.24rem;
+}
+
+.turn-translated.urdu-text {
+  font-size: 1.2rem;
+  line-height: 2.1;
+}
+
+/* The live caption of whoever is speaking right now. */
+.turn-ghost {
+  padding: 18px 0 20px 16px;
+  border-inline-start: 2px dashed
+    color-mix(in srgb, var(--column-color) 45%, transparent);
+}
+
+.turn-ghost .turn-source {
+  color: var(--ink-mute);
+  font-weight: 500;
+}
+
+.ghost-tail {
+  color: var(--column-color);
+}
+
+.conversation-end {
+  height: 1px;
+}
+
+/* New turns settle in gently; reduced-motion users get instant content. */
+@media (prefers-reduced-motion: no-preference) {
+  .turn {
+    animation: turn-in 0.32s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+    animation-delay: calc(var(--turn-index) * 60ms);
+  }
+
+  .turn-ghost {
+    animation: turn-in 0.25s ease-out both;
+  }
+
+  @keyframes turn-in {
+    from {
+      opacity: 0;
+      translate: 0 8px;
+    }
+    to {
+      opacity: 1;
+      translate: 0 0;
+    }
+  }
+}
+
+@media (max-width: 640px) {
+  .conversation {
+    width: min(100% - 36px, 1060px);
+  }
+
+  .conversation-columns {
+    gap: 22px;
+  }
+
+  .turn {
+    padding-inline-start: 12px;
+  }
+}

@@ -1,0 +1,109 @@
+/* Home: one calm column — the microphone as hero, an invitation, and the
+   language pair on the same screen. Nothing boxed, nothing compartmented. */
+.idle-home {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(30px, 5.5vh, 52px);
+  min-height: 100%;
+  padding: 20px 20px 40px;
+  text-align: center;
+}
+
+.idle-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* The hero mic's home. The real mic button overlays this slot. */
+.mic-slot-hero {
+  width: 104px;
+  height: 104px;
+  margin-bottom: clamp(22px, 3.5vh, 34px);
+}
+
+.idle-title {
+  color: var(--ink);
+  font-family: var(--font-brand);
+  font-size: clamp(1.7rem, 1.4rem + 1.4vw, 2.15rem);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+.idle-subtitle {
+  max-width: 44ch;
+  margin-top: 10px;
+  color: var(--ink-mute);
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+/* The language pair sits lower on the canvas, part of the same surface. */
+.language-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 560px);
+}
+
+.language-setup-label {
+  color: var(--ink-mute);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.language-selectors {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.language-swap {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    rotate 0.25s ease;
+}
+
+.language-swap:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  rotate: 180deg;
+}
+
+.language-swap:disabled {
+  color: var(--line-strong);
+  cursor: default;
+}
+
+.language-summary {
+  color: var(--ink-mute);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 560px) {
+  .language-selectors {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .language-native {
+    display: none;
+  }
+}

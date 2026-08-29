@@ -1,0 +1,178 @@
+/* The session bar floats at the bottom of the canvas — no divider, no panel.
+   A soft scrim keeps scrolling text legible as it passes underneath. */
+.session-bar {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 26px 16px 20px;
+  pointer-events: none;
+}
+
+.session-bar::before {
+  content: '';
+  position: absolute;
+  inset: -56px 0 0;
+  z-index: -1;
+  background: linear-gradient(transparent, var(--paper) 55%);
+  pointer-events: none;
+}
+
+.session-bar > * {
+  pointer-events: auto;
+}
+
+.session-mic-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+/* The docked mic's home. The real mic button overlays this slot. */
+.mic-slot-dock {
+  width: 56px;
+  height: 56px;
+}
+
+/* A small, refined waveform: it accompanies the mic, never dominates. */
+.wave-bars {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+}
+
+.wave-bars-mirror {
+  scale: -1 1;
+}
+
+.wave-bars span {
+  width: 2.5px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  scale: 1 0.22;
+}
+
+.session-bar[data-phase='listening'] .wave-bars span {
+  background: var(--accent);
+}
+
+.session-bar[data-phase='translating'] .wave-bars span {
+  background: var(--ink-mute);
+}
+
+.session-bar[data-phase='playing'] .wave-bars span {
+  background: var(--playback-color, var(--accent));
+}
+
+.session-caption {
+  color: var(--ink-mute);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+/* The way forward once a conversation has ended: two quiet text actions. */
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actions-divider {
+  width: 3px;
+  height: 3px;
+  margin: 0 4px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.session-action {
+  padding: 6px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 0.85rem;
+  font-weight: 640;
+  letter-spacing: 0.01em;
+  transition:
+    background-color 0.16s ease,
+    box-shadow 0.16s ease,
+    color 0.16s ease;
+}
+
+.action-new {
+  color: var(--accent-ink);
+}
+
+.action-new:hover {
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent-strong);
+}
+
+.action-clear {
+  color: var(--danger-ink);
+}
+
+.action-clear:hover {
+  background: var(--danger-bg);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger-ink) 8%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .session-bar[data-phase='listening'] .wave-bars span {
+    animation: wave-listen 1.5s ease-in-out infinite;
+    animation-delay: calc(var(--bar) * 130ms);
+  }
+
+  .session-bar[data-phase='playing'] .wave-bars span {
+    animation: wave-play 0.9s ease-in-out infinite;
+    animation-delay: calc(var(--bar) * 95ms);
+  }
+
+  .session-bar[data-phase='translating'] .wave-bars span {
+    animation: wave-translate 2s ease-in-out infinite;
+    animation-delay: calc(var(--bar) * 160ms);
+  }
+
+  @keyframes wave-listen {
+    0%,
+    100% {
+      scale: 1 0.24;
+      opacity: 0.6;
+    }
+    50% {
+      scale: 1 1;
+      opacity: 1;
+    }
+  }
+
+  @keyframes wave-play {
+    0%,
+    100% {
+      scale: 1 0.3;
+      opacity: 0.65;
+    }
+    50% {
+      scale: 1 1.15;
+      opacity: 1;
+    }
+  }
+
+  @keyframes wave-translate {
+    0%,
+    100% {
+      scale: 1 0.2;
+      opacity: 0.4;
+    }
+    50% {
+      scale: 1 0.42;
+      opacity: 0.8;
+    }
+  }
+}
