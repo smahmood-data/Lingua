@@ -10,7 +10,11 @@ import { Conversation } from './components/Conversation'
 import { IdleHome } from './components/IdleHome'
 import { MicButton, type MicPhase } from './components/MicButton'
 import { SessionBar } from './components/SessionBar'
-import { StatusNotice } from './components/StatusNotice'
+import {
+  IdleSessionEndedNotice,
+  IdleSessionNotice,
+  StatusNotice,
+} from './components/StatusNotice'
 import { TopBar } from './components/TopBar'
 import { useControlKeyboard } from './hooks/useControlKeyboard'
 import { useTheme } from './hooks/useTheme'
@@ -95,6 +99,8 @@ export default function App() {
     error,
     turns,
     interimTranscript,
+    idleTimeoutEndedAt,
+    idleWarningEndsAt,
     isActive,
     sourceLanguage,
     targetLanguage,
@@ -293,7 +299,19 @@ export default function App() {
         onToggleTheme={toggleTheme}
       />
 
-      {error ? <StatusNotice error={error} /> : null}
+      {error ? (
+        <StatusNotice
+          key={`${error.code}:${error.message}:${error.retryAfterSeconds ?? ''}`}
+          error={error}
+        />
+      ) : idleWarningEndsAt !== null ? (
+        <IdleSessionNotice
+          key={idleWarningEndsAt}
+          endsAt={idleWarningEndsAt}
+        />
+      ) : idleTimeoutEndedAt !== null ? (
+        <IdleSessionEndedNotice key={idleTimeoutEndedAt} />
+      ) : null}
 
       <main className="app-main">
         {showConversation ? (

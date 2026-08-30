@@ -1,3 +1,4 @@
+import { checkRateLimit } from '@vercel/firewall'
 import {
   interpreterInstruction,
   isSourceLanguageCode,
@@ -13,6 +14,7 @@ import {
 type ApiRequest = {
   method?: string
   query: Record<string, string | string[] | undefined>
+  headers?: Record<string, string | string[] | undefined>
 }
 
 type ApiResponse = {
@@ -38,6 +40,13 @@ const API_BASE_URL = (
 ).replace(/\/$/, '')
 const LIVE_MODEL =
   process.env.GEMINI_LIVE_MODEL || 'gemini-3.5-live-translate-preview'
+const LIVE_TOKEN_RATE_LIMIT_ID =
+  process.env.LIVE_TOKEN_RATE_LIMIT_ID || 'lingua-live-token'
+const LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS = positiveInteger(
+  process.env.LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS,
+  10 * 60,
+)
+const LIVE_TOKEN_PROTECTION_RETRY_SECONDS = 30
 
 function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number.parseInt(value ?? '', 10)
@@ -46,6 +55,94 @@ function positiveInteger(value: string | undefined, fallback: number) {
 
 function queryValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value
+}
+
+function definedHeaders(
+  headers: ApiRequest['headers'],
+): Record<string, string | string[]> {
+  return Object.fromEntries(
+    Object.entries(headers ?? {}).filter(
+      (entry): entry is [string, string | string[]] =>
+        entry[1] !== undefined,
+    ),
+  )
+}
+
+function retryDelay(seconds: number) {
+  if (seconds < 60) {
+    return `${seconds} second${seconds === 1 ? '' : 's'}`
+  }
+  const minutes = Math.ceil(seconds / 60)
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`
+}
+
+function sendRateLimitError(response: ApiResponse) {
+  response.setHeader(
+    'Retry-After',
+    String(LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS),
+  )
+  return response.status(429).json({
+    error: 'Live Session Limit Reached',
+    code: 'live_token_rate_limited',
+    message: `This network has started too many live sessions. Try again in ${retryDelay(
+      LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS,
+    )}.`,
+    retryable: true,
+    retryAfterSeconds: LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS,
+  })
+}
+
+function sendProtectionConfigurationError(response: ApiResponse) {
+  return response.status(503).json({
+    error: 'Live Session Protection Error',
+    code: 'live_token_protection_not_configured',
+    message:
+      'Live sessions are unavailable because abuse protection is not configured. Contact the site owner.',
+    retryable: false,
+  })
+}
+
+function sendProtectionUnavailableError(response: ApiResponse) {
+  response.setHeader('Retry-After', String(LIVE_TOKEN_PROTECTION_RETRY_SECONDS))
+  return response.status(503).json({
+    error: 'Live Session Protection Unavailable',
+    code: 'live_token_protection_unavailable',
+    message: `Live-session protection could not be checked. Try again in ${retryDelay(
+      LIVE_TOKEN_PROTECTION_RETRY_SECONDS,
+    )}.`,
+    retryable: true,
+    retryAfterSeconds: LIVE_TOKEN_PROTECTION_RETRY_SECONDS,
+  })
+}
+
+async function allowLiveTokenRequest(
+  request: ApiRequest,
+  response: ApiResponse,
+) {
+  try {
+    const result = await checkRateLimit(LIVE_TOKEN_RATE_LIMIT_ID, {
+      headers: definedHeaders(request.headers),
+    })
+    // The SDK deliberately fails open when the matching dashboard rule is
+    // missing. Token creation must instead stop until deployment protection is
+    // restored, or a configuration mistake would silently reopen this route.
+    if (result.error) {
+      if (result.error === 'not-found') {
+        sendProtectionConfigurationError(response)
+      } else {
+        sendProtectionUnavailableError(response)
+      }
+      return false
+    }
+    if (result.rateLimited) {
+      sendRateLimitError(response)
+      return false
+    }
+    return true
+  } catch {
+    sendProtectionUnavailableError(response)
+    return false
+  }
 }
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -94,6 +191,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       message: 'source and target must be different languages.',
     })
   }
+
+  if (!(await allowLiveTokenRequest(request, response))) {
+    return
+  }
+
   const systemInstruction = interpreterInstruction(
     sourceLanguage,
     targetLanguage,

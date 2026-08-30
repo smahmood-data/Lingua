@@ -38,6 +38,9 @@ export type SessionErrorCode =
   | 'microphone-permission-denied'
   | 'microphone-unavailable'
   | 'unsupported-browser'
+  | 'token-rate-limited'
+  | 'token-protection-not-configured'
+  | 'token-protection-unavailable'
   | 'token-request-failed'
   | 'live-connection-failed'
   | 'live-disconnected'
@@ -49,6 +52,8 @@ export interface SessionError {
   message: string
   /** Whether starting a new session is expected to work without a page reload. */
   recoverable: boolean
+  /** Server-advised delay before another attempt, when one is available. */
+  retryAfterSeconds?: number
 }
 
 /**
@@ -106,4 +111,8 @@ export interface TranslationSessionSnapshot {
   turns: ConversationTurn[]
   /** Live partial caption, or `null` when there is nothing in progress. */
   interimTranscript: InterimTranscript | null
+  /** Idle deadline after the warning appears; `null` while speech is recent. */
+  idleWarningEndsAt: number | null
+  /** When inactivity ended the session; `null` for every other stop reason. */
+  idleTimeoutEndedAt: number | null
 }

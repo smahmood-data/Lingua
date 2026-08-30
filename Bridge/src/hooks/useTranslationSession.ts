@@ -25,6 +25,10 @@ export interface UseTranslationSessionResult {
   turns: ConversationTurn[]
   /** Live partial caption while someone is speaking, or `null`. */
   interimTranscript: InterimTranscript | null
+  /** Idle deadline once the session-ending warning is active. */
+  idleWarningEndsAt: number | null
+  /** When inactivity most recently ended the session; cleared on the next start. */
+  idleTimeoutEndedAt: number | null
   /** True while microphone and Live resources are held. */
   isActive: boolean
   /** Start a session. Repeated calls while active are ignored. */
@@ -108,6 +112,8 @@ export function useTranslationSession(
     error: snapshot.error,
     turns: snapshot.turns,
     interimTranscript: snapshot.interimTranscript,
+    idleWarningEndsAt: snapshot.idleWarningEndsAt,
+    idleTimeoutEndedAt: snapshot.idleTimeoutEndedAt,
     isActive: isSessionActive(snapshot.state),
     start,
     setSourceLanguage,

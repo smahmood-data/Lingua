@@ -38,6 +38,72 @@ function readString(source: Record<string, unknown>, key: string): string | unde
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
+function readRetryAfterSeconds(
+  response: Response,
+  body: Record<string, unknown>,
+): number | undefined {
+  const bodyValue = body.retryAfterSeconds
+  const headerValue = Number.parseInt(response.headers.get('Retry-After') ?? '', 10)
+  const value =
+    typeof bodyValue === 'number' && Number.isInteger(bodyValue)
+      ? bodyValue
+      : headerValue
+  return Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+function retryDelay(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds} second${seconds === 1 ? '' : 's'}`
+  }
+  const minutes = Math.ceil(seconds / 60)
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`
+}
+
+async function liveTokenResponseError(response: Response) {
+  let body: Record<string, unknown> = {}
+  try {
+    const candidate: unknown = await response.json()
+    if (typeof candidate === 'object' && candidate !== null) {
+      body = candidate as Record<string, unknown>
+    }
+  } catch {
+    // Only the small, recognised protection schema below is allowed into UI
+    // errors. Malformed and unrelated responses keep the safe fallback.
+  }
+
+  const retryAfterSeconds = readRetryAfterSeconds(response, body)
+  switch (body.code) {
+    case 'live_token_rate_limited': {
+      const delay = retryAfterSeconds
+        ? ` Try again in ${retryDelay(retryAfterSeconds)}.`
+        : ' Wait before trying again.'
+      return sessionError(
+        'token-rate-limited',
+        `This network has started too many live sessions.${delay}`,
+        { retryAfterSeconds },
+      )
+    }
+    case 'live_token_protection_not_configured':
+      return sessionError(
+        'token-protection-not-configured',
+        undefined,
+        { recoverable: false },
+      )
+    case 'live_token_protection_unavailable': {
+      const delay = retryAfterSeconds
+        ? ` Try again in ${retryDelay(retryAfterSeconds)}.`
+        : ' Wait briefly and try again.'
+      return sessionError(
+        'token-protection-unavailable',
+        `Live-session protection could not be checked.${delay}`,
+        { retryAfterSeconds },
+      )
+    }
+    default:
+      return sessionError('token-request-failed')
+  }
+}
+
 /**
  * Read the token out of the server response.
  *
@@ -80,8 +146,9 @@ export function parseLiveTokenResponse(body: unknown): LiveToken {
  * puts the server on another origin should pass an absolute URL here rather
  * than introduce a build-time variable.
  *
- * Failures collapse into one `token-request-failed` session error so response
- * bodies, status text, and URLs never reach the UI or the console.
+ * Only the endpoint's recognised abuse-protection codes receive specific UI
+ * guidance. Other failures still collapse into `token-request-failed`, so raw
+ * response bodies, status text, and URLs never reach the UI or console.
  */
 export function createLiveTokenProvider(
   endpoint: string = LIVE_TOKEN_ENDPOINT,
@@ -108,7 +175,7 @@ export function createLiveTokenProvider(
     }
 
     if (!response.ok) {
-      throw sessionError('token-request-failed')
+      throw await liveTokenResponseError(response)
     }
 
     try {

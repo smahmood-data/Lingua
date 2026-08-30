@@ -66,9 +66,35 @@ export interface TranslationSessionOptions {
   tokenProvider?: LiveTokenProvider
   /** Overrides the model. Otherwise the server's model, then the documented default. */
   model?: string
+  /** Total silence before an active session stops. Defaults to the configured five minutes. */
+  idleTimeoutMs?: number
+  /** How long before idle expiry the warning appears. Defaults to 15 seconds. */
+  idleWarningLeadMs?: number
 }
 
 export type SessionListener = (snapshot: TranslationSessionSnapshot) => void
+
+const DEFAULT_IDLE_TIMEOUT_MS = configuredSeconds(
+  import.meta.env.VITE_LIVE_IDLE_TIMEOUT_SECONDS,
+  5 * 60,
+)
+const DEFAULT_IDLE_WARNING_LEAD_MS = configuredSeconds(
+  import.meta.env.VITE_LIVE_IDLE_WARNING_SECONDS,
+  15,
+)
+
+function configuredSeconds(value: string | undefined, fallbackSeconds: number) {
+  const seconds = Number.parseInt(value ?? '', 10)
+  return Number.isInteger(seconds) && seconds > 0
+    ? seconds * 1000
+    : fallbackSeconds * 1000
+}
+
+function positiveDuration(value: number | undefined, fallback: number) {
+  return value !== undefined && Number.isFinite(value) && value > 0
+    ? value
+    : fallback
+}
 
 /**
  * Owns the resources a two-way interpreter session needs, and nothing else.
@@ -92,6 +118,8 @@ export class TranslationSession {
   private targetLanguage: SupportedLanguageCode
   private readonly tokenProvider: LiveTokenProvider
   private readonly modelOverride?: string
+  private readonly idleTimeoutMs: number
+  private readonly idleWarningLeadMs: number
 
   private capture: MicrophoneCapture | null = null
   private playback: PlaybackScheduler | null = null
@@ -107,6 +135,11 @@ export class TranslationSession {
   private shutdownPromise: Promise<void> | null = null
   private resourceTeardownPromise: Promise<void> | null = null
   private disposePromise: Promise<void> | null = null
+
+  private idleWarningTimer: ReturnType<typeof setTimeout> | null = null
+  private idleTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+  private idleWarningEndsAt: number | null = null
+  private idleTimeoutEndedAt: number | null = null
 
   private generation = 0
   private routeCounter = 0
@@ -131,6 +164,17 @@ export class TranslationSession {
     this.targetLanguage = options.targetLanguage ?? DEFAULT_TARGET_LANGUAGE
     this.tokenProvider = options.tokenProvider ?? createLiveTokenProvider()
     this.modelOverride = options.model
+    this.idleTimeoutMs = positiveDuration(
+      options.idleTimeoutMs,
+      DEFAULT_IDLE_TIMEOUT_MS,
+    )
+    this.idleWarningLeadMs = Math.min(
+      positiveDuration(
+        options.idleWarningLeadMs,
+        DEFAULT_IDLE_WARNING_LEAD_MS,
+      ),
+      this.idleTimeoutMs,
+    )
     this.conversation = new ConversationCoordinator(
       {
         playAudio: (pcm16) => this.playAudio(pcm16),
@@ -179,12 +223,14 @@ export class TranslationSession {
       sourceLanguage !== AUTO_SOURCE_LANGUAGE &&
       languageCodesMatch(sourceLanguage, targetLanguage)
     ) {
+      this.idleTimeoutEndedAt = null
       this.error = sessionError('unknown')
       this.lifecycle = 'error'
       this.emit()
       return
     }
 
+    this.idleTimeoutEndedAt = null
     this.sourceLanguage = sourceLanguage
     this.targetLanguage = targetLanguage
     // An explicit selection *is* the conversation pair. Auto mode learns it from
@@ -212,6 +258,7 @@ export class TranslationSession {
   }
 
   async stop(): Promise<void> {
+    this.clearIdleProtection()
     this.generation += 1
     this.lifecycle = 'stopped'
     await this.shutdown()
@@ -361,6 +408,7 @@ export class TranslationSession {
       }
 
       this.lifecycle = 'active'
+      this.armIdleProtection(generation)
       this.emit()
     } catch (cause) {
       if (!this.isSuperseded(generation)) await this.fail(cause, generation)
@@ -488,11 +536,13 @@ export class TranslationSession {
     return {
       onSpeechStart: (utterance) => {
         if (this.isSuperseded(generation)) return
+        this.recordUserActivity(generation)
         trace('speech-start', { utterance })
         conversation.speechStarted(route.id, utterance)
       },
       onSpeechEnd: (utterance) => {
         if (this.isSuperseded(generation)) return
+        this.recordUserActivity(generation)
         trace('speech-end', { utterance })
         conversation.speechEnded(route.id, utterance)
       },
@@ -704,6 +754,53 @@ export class TranslationSession {
     this.conversation.playbackEnded()
   }
 
+  // --- Idle protection -----------------------------------------------------
+
+  /** Arm one warning and one hard stop from the most recent speech activity. */
+  private armIdleProtection(generation: number): void {
+    this.clearIdleProtection()
+    if (this.isSuperseded(generation) || this.lifecycle !== 'active') return
+
+    const endsAt = Date.now() + this.idleTimeoutMs
+    const warningDelay = this.idleTimeoutMs - this.idleWarningLeadMs
+    this.idleWarningTimer = setTimeout(() => {
+      this.idleWarningTimer = null
+      if (this.isSuperseded(generation) || this.lifecycle !== 'active') return
+      this.idleWarningEndsAt = endsAt
+      liveTrace('idle-warning', {
+        remainingMs: Math.max(0, endsAt - Date.now()),
+      })
+      this.emit()
+    }, warningDelay)
+    this.idleTimeoutTimer = setTimeout(() => {
+      this.idleTimeoutTimer = null
+      if (this.isSuperseded(generation) || this.lifecycle !== 'active') return
+      this.idleTimeoutEndedAt = Date.now()
+      liveTrace('idle-timeout')
+      void this.stop()
+    }, this.idleTimeoutMs)
+  }
+
+  /** Gemini VAD activity is user speech; model output deliberately is not. */
+  private recordUserActivity(generation: number): void {
+    if (this.isSuperseded(generation) || this.lifecycle !== 'active') return
+    const warningWasVisible = this.idleWarningEndsAt !== null
+    this.armIdleProtection(generation)
+    if (warningWasVisible) this.emit()
+  }
+
+  private clearIdleProtection(): void {
+    if (this.idleWarningTimer !== null) {
+      clearTimeout(this.idleWarningTimer)
+      this.idleWarningTimer = null
+    }
+    if (this.idleTimeoutTimer !== null) {
+      clearTimeout(this.idleTimeoutTimer)
+      this.idleTimeoutTimer = null
+    }
+    this.idleWarningEndsAt = null
+  }
+
   // --- Teardown -------------------------------------------------------------
 
   private isSuperseded(generation: number): boolean {
@@ -712,6 +809,7 @@ export class TranslationSession {
 
   private async fail(cause: unknown, generation: number): Promise<void> {
     if (this.isSuperseded(generation)) return
+    this.clearIdleProtection()
     this.generation += 1
     this.error = toSessionError(cause)
     this.lifecycle = 'error'
@@ -742,6 +840,7 @@ export class TranslationSession {
   private async teardownResources(): Promise<void> {
     if (this.resourceTeardownPromise) return this.resourceTeardownPromise
 
+    this.clearIdleProtection()
     const {
       abortController,
       counterpartAbortController,
@@ -790,6 +889,8 @@ export class TranslationSession {
       error: this.error,
       turns: this.conversation.turns,
       interimTranscript: this.conversation.interimTranscript,
+      idleWarningEndsAt: this.idleWarningEndsAt,
+      idleTimeoutEndedAt: this.idleTimeoutEndedAt,
     }
   }
 

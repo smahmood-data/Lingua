@@ -7,6 +7,12 @@ const MESSAGES: Record<SessionErrorCode, string> = {
     'No usable microphone was found. Check the input device and start again.',
   'unsupported-browser':
     'This browser is missing the audio APIs Lingua needs. Try a current version of Chrome, Edge, Firefox, or Safari.',
+  'token-rate-limited':
+    'This network has started too many live sessions. Wait before starting another conversation.',
+  'token-protection-not-configured':
+    'Live sessions are unavailable because abuse protection is not configured. Contact the site owner.',
+  'token-protection-unavailable':
+    'Live-session protection could not be checked. Wait briefly and try again.',
   'token-request-failed':
     'Could not get a usable session token from the Lingua server. Check that the server is running and try again.',
   'live-connection-failed':
@@ -24,13 +30,20 @@ const CODE_SET = new Set<string>(SESSION_ERROR_CODES)
 export function sessionError(
   code: SessionErrorCode,
   message?: string,
+  options: {
+    recoverable?: boolean
+    retryAfterSeconds?: number
+  } = {},
 ): SessionError {
   return {
     code,
     message: message ?? MESSAGES[code],
-    // Every failure here is retryable without a page reload; the controller
-    // always returns to a resting state before surfacing the error.
-    recoverable: true,
+    // The controller returns to a resting state before surfacing an error.
+    // Only operator configuration failures opt out of the normal retry path.
+    recoverable: options.recoverable ?? true,
+    ...(options.retryAfterSeconds === undefined
+      ? {}
+      : { retryAfterSeconds: options.retryAfterSeconds }),
   }
 }
 

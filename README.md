@@ -44,6 +44,18 @@ The Gemini API key remains on the backend. The browser receives only a short-liv
 
 For Vercel, [`Bridge/api/live-token.ts`](./Bridge/api/live-token.ts) provides the same secure token route inside the deployed frontend project. Set `GEMINI_API_KEY` as a server-side Vercel environment variable; never expose it as a `VITE_*` variable. The Vercel project root must be `Bridge`.
 
+### Live-token abuse protection
+
+The default anonymous policy allows 60 successful token creations per client IP in a fixed 10-minute window. A normal explicit-language conversation creates two tokens, so the default leaves room for about 30 starts, or 15 people each making one full restart/retry, behind the same public IP during that window. Keeping a conversation open for 5–10 minutes does not itself create more tokens. A limited request returns HTTP 429 with a short explanation, a stable error code, `retryAfterSeconds`, and `Retry-After`; invalid requests and upstream failures do not consume the local Express server's successful-token allowance. `LIVE_TOKEN_RATE_LIMIT_MAX` and `LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS` adjust the local policy.
+
+The Vercel function uses Vercel Firewall for a distributed counter. Before deploying it, create and publish an `@vercel/firewall` rate-limit rule with ID `lingua-live-token`, a fixed window of 60 requests per 600 seconds, the client IP as its key, and 429 as its exceeded action. The rule threshold remains configurable in Vercel. Its ID can be changed with the server-only `LIVE_TOKEN_RATE_LIMIT_ID`; if the window changes, set `LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS` to the same number so retry guidance remains accurate. The function returns an actionable HTTP 503 and does not contact Gemini when the rule is missing, blocked, or unavailable, so a deployment cannot silently fail open.
+
+The Express counter is intentionally in memory because that server is the single-process local-development path. Keep `TRUST_PROXY_HOPS=0` when it is reached directly. If it is placed behind a reverse proxy, set the value only to the exact number of trusted hops after confirming the last proxy overwrites `X-Forwarded-For`; a multi-process or public Express deployment needs a shared rate-limit store.
+
+This is a per-IP control, not identity or a global spending cap. Vercel Firewall counters are also regional, so a distributed client or multi-region traffic can exceed the nominal project-wide total. Authentication, a human challenge, a global quota, and usage-based session accounting are separate hardening layers if the demo becomes a broader public service.
+
+After issuance, `uses: 1` still permits only one new Live session. That session must start within 60 seconds by default, and the token expires after 30 minutes by default; both values remain server-adjustable. The browser does not automatically reconnect or resume a closed connection. It also ends an open session after five minutes without Gemini-detected user speech, warning 15 seconds beforehand; both idle intervals are configurable through the non-secret Vite settings documented in the frontend README. The token locks the dedicated Live Translate model, audio output, transcription, and target-language translation configuration, and does not enable tools.
+
 ## Local setup
 
 Prerequisites: Node.js 20.19 or newer, npm, and a Gemini API key for authenticated backend integration tests and live requests.
