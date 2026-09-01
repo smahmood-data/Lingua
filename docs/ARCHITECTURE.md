@@ -4,20 +4,28 @@ These diagrams describe the hackathon MVP: one laptop translates spoken Urdu and
 
 ## System architecture and secure token flow
 
-The browser never receives the long-lived `GEMINI_API_KEY`. It asks the server for a constrained, short-lived token and uses that token for the direct Live API connection.
+The browser never receives the long-lived `GEMINI_API_KEY`. It asks a
+server-side adapter for a constrained, short-lived token and uses that token for
+the direct Live API connection. Local development and Vercel expose the same
+browser path through different adapters; their ownership is documented in
+[`REPOSITORY_STRUCTURE.md`](./REPOSITORY_STRUCTURE.md).
 
 ```mermaid
 flowchart LR
-    User["Urdu and English speakers"] --> Browser["React + Vite browser app"]
-    Browser -->|"GET /api/live-token"| Server["Node + Express API"]
-    Secret["Server-only GEMINI_API_KEY"] --> Server
-    Server -->|"Create constrained ephemeral token"| GeminiAPI["Gemini API"]
-    Server -->|"Return short-lived token"| Browser
+    User["Conversation participants"] --> Browser["frontend/src<br/>React + Vite browser app"]
+    Browser -->|"local /api proxy"| Express["backend/<br/>Node + Express"]
+    Browser -->|"deployed GET /api/live-token"| Function["frontend/api/live-token.ts<br/>Vercel Function"]
+    Secret["Server-only GEMINI_API_KEY"] --> Express
+    Secret --> Function
+    Express -->|"Create constrained ephemeral token"| GeminiAPI["Gemini API"]
+    Function -->|"Create constrained ephemeral token"| GeminiAPI
+    Express -->|"Return short-lived token locally"| Browser
+    Function -->|"Return short-lived token on Vercel"| Browser
     Browser <-->|"Live audio and transcript events"| Live["Gemini Live Translate"]
-    Browser -->|"POST /api/summarize with transcript"| Server
-    Server -->|"Structured extraction request"| Flash["Gemini Flash"]
-    Flash -->|"Structured result"| Server
-    Server -->|"Validated summary"| Browser
+    Browser -->|"local POST /api/summarize with transcript"| Express
+    Express -->|"Structured extraction request"| Flash["Gemini Flash"]
+    Flash -->|"Structured result"| Express
+    Express -->|"Validated summary"| Browser
 ```
 
 ## Three-screen user journey
@@ -41,7 +49,7 @@ The same sequence is reused with the languages reversed for English to Urdu.
 sequenceDiagram
     actor Speaker as Urdu speaker
     participant Browser as Lingua browser
-    participant Server as Express token API
+    participant Server as Server-side token adapter
     participant Gemini as Gemini Live Translate
 
     Speaker->>Browser: Start Urdu to English session
