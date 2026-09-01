@@ -1,14 +1,51 @@
-/* App shell: a single calm surface — top bar, reading column, control dock. */
+/*
+  One unified canvas: masthead, content, and the microphone that travels
+  between them. No compartments, no dashboard dividers.
+*/
 .app-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100svh;
+  overflow: hidden;
+  /* Two very soft washes over the paper. They belong to the canvas rather
+     than to any component, and are weak enough to be felt before they are
+     noticed — see --canvas-wash. */
+  background: var(--canvas-wash), var(--paper);
 }
 
 .app-main {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+/* Home is a fixed composition rather than a page: it never scrolls, so the
+   hero slot cannot drift out from under the microphone overlaying it. */
+.mode-idle .app-main {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  overflow: hidden;
+}
+
+/* Room for the session bar the conversation scrolls underneath. */
+.mode-session .app-main,
+.mode-ended .app-main {
+  padding-bottom: 216px;
+}
+
+/*
+  Both slots are empty boxes the shell measures. CSS owns their size, the
+  shell mirrors it onto the microphone, so the two can never disagree.
+*/
+.mic-slot {
+  flex: none;
+}
+
+@media (max-height: 620px) {
+  .mic-slot-hero {
+    width: 104px;
+    height: 104px;
+  }
 }

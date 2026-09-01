@@ -1,0 +1,259 @@
+/*
+  The session bar floats at the bottom of the canvas — no divider, no panel.
+  A soft scrim keeps scrolling text legible as it passes underneath.
+*/
+.session-bar {
+  --playback-ink: color-mix(
+    in srgb,
+    var(--playback-color, var(--accent)) calc(100% - var(--accent-lift)),
+    var(--ink)
+  );
+
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 30px 16px clamp(18px, 3vh, 28px);
+  pointer-events: none;
+}
+
+.session-bar::before {
+  content: '';
+  position: absolute;
+  inset: -44px 0 0;
+  z-index: -1;
+  background: linear-gradient(transparent, var(--paper) 62%);
+  pointer-events: none;
+}
+
+.session-bar > * {
+  pointer-events: auto;
+}
+
+/* Equal-width flanks keep the microphone on the centre line whether they
+   hold a waveform or a pair of labelled actions. */
+.session-mic-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 3vw, 26px);
+  width: min(100%, 620px);
+}
+
+.session-flank {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: center;
+}
+
+.session-bar[data-phase='ended'] .session-mic-row,
+.session-bar[data-phase='error'] .session-mic-row {
+  gap: clamp(18px, 5vw, 52px);
+}
+
+.flank-left {
+  justify-content: flex-end;
+}
+
+.flank-right {
+  justify-content: flex-start;
+}
+
+/* The docked mic's home. The real mic button overlays this slot, so its size
+   must match the shell's session measurement. */
+.mic-slot-dock {
+  flex: none;
+  width: 72px;
+  height: 72px;
+}
+
+/* --- Waveform ------------------------------------------------------------ */
+
+/*
+  A small, refined line that accompanies the microphone and never competes
+  with it. There is deliberately no audio amplitude here: the capture pipeline
+  does not expose levels to the interface, so the bars animate what the
+  session is *doing* rather than pretending to measure a voice. They fade out
+  away from the mic, so the line has no hard edge to box it in.
+*/
+.wave-bars {
+  display: flex;
+  align-items: center;
+  gap: 3.5px;
+  height: 26px;
+  max-width: 100%;
+}
+
+.wave-bars[data-side='left'] {
+  mask-image: linear-gradient(to right, transparent, #000 78%);
+}
+
+.wave-bars[data-side='right'] {
+  mask-image: linear-gradient(to left, transparent, #000 78%);
+}
+
+.wave-bars span {
+  width: 2.5px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  scale: 1 0.3;
+  transition:
+    background-color var(--dur-med) var(--ease-out),
+    scale var(--dur-med) var(--ease-out);
+}
+
+.session-bar[data-phase='listening'] .wave-bars span {
+  background: var(--accent);
+}
+
+.session-bar[data-phase='translating'] .wave-bars span {
+  background: var(--ink-mute);
+}
+
+.session-bar[data-phase='playing'] .wave-bars span {
+  background: var(--playback-ink);
+}
+
+.session-caption {
+  color: var(--ink-mute);
+  font-size: 0.85rem;
+  letter-spacing: 0.005em;
+  text-align: center;
+}
+
+/* --- The two ways forward once a conversation has ended ------------------ */
+
+.session-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 15px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 620;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.action-new {
+  color: var(--accent-ink);
+  border-color: var(--accent-line);
+}
+
+.action-new:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent-strong);
+}
+
+.action-new:disabled {
+  color: var(--ink-mute);
+  border-color: var(--line-strong);
+  cursor: default;
+}
+
+.action-clear {
+  color: var(--danger-ink);
+  border-color: var(--danger-edge);
+}
+
+.action-clear:hover:not(:disabled) {
+  border-color: var(--danger-ink);
+  background: var(--danger-bg);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger-ink) 9%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The bar's furniture fades up around the microphone as it arrives. */
+  .session-flank,
+  .session-caption {
+    animation: bar-in 420ms var(--ease-out) backwards;
+  }
+
+  @keyframes bar-in {
+    from {
+      opacity: 0;
+      translate: 0 8px;
+    }
+    to {
+      opacity: 1;
+      translate: 0 0;
+    }
+  }
+
+  .session-bar[data-phase='listening'] .wave-bars span {
+    animation: wave-listen 1.5s ease-in-out infinite;
+    animation-delay: calc(var(--bar) * 70ms);
+  }
+
+  .session-bar[data-phase='playing'] .wave-bars span {
+    animation: wave-play 0.9s ease-in-out infinite;
+    animation-delay: calc(var(--bar) * 52ms);
+  }
+
+  .session-bar[data-phase='translating'] .wave-bars span {
+    animation: wave-translate 1.8s ease-in-out infinite;
+    animation-delay: calc(var(--bar) * 60ms);
+  }
+
+  @keyframes wave-listen {
+    0%,
+    100% {
+      scale: 1 0.3;
+      opacity: 0.65;
+    }
+    50% {
+      scale: 1 1;
+      opacity: 1;
+    }
+  }
+
+  @keyframes wave-play {
+    0%,
+    100% {
+      scale: 1 0.3;
+      opacity: 0.65;
+    }
+    50% {
+      scale: 1 1.15;
+      opacity: 1;
+    }
+  }
+
+  @keyframes wave-translate {
+    0%,
+    100% {
+      scale: 1 0.2;
+      opacity: 0.4;
+    }
+    50% {
+      scale: 1 0.5;
+      opacity: 0.85;
+    }
+  }
+}
+
+@media (max-width: 560px) {
+  .session-action {
+    padding: 7px 12px;
+    font-size: 0.8rem;
+  }
+
+  .session-caption {
+    font-size: 0.8rem;
+  }
+}

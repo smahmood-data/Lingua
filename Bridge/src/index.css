@@ -1,7 +1,11 @@
 /*
   Lingua design tokens.
-  One calm surface: warm paper neutrals, a single deep-green accent family,
-  and semantic colors reserved for states that need attention.
+
+  One calm surface in two temperaments. Light is warm paper; dark is a deep
+  green-neutral canvas rather than black, so both read as the same product.
+  Every colour a component needs is named here — components never reach for a
+  raw hex — which is what lets the whole interface change temperament from one
+  attribute on the root element.
 */
 :root {
   /* Surfaces and text */
@@ -20,6 +24,10 @@
   --accent-tint: #e2eee8;
   --accent-line: #bfd8cc;
 
+  /* The microphone's own surface and the glyph on it. */
+  --mic-face: var(--accent);
+  --mic-ink: #ffffff;
+
   /* Semantic state colors */
   --warn-bg: #faf0da;
   --warn-ink: #78520d;
@@ -28,9 +36,53 @@
   --danger-ink: #99351f;
   --danger-edge: #e6b7a7;
 
-  /* Speaker markers */
-  --speaker-a: #0c6b4e;
-  --speaker-b: #a5641f;
+  /*
+    Atmosphere. Two very soft washes keep a full-screen canvas from reading as
+    one flat field. They are deliberately weak enough to be felt rather than
+    seen, and they stay in the upper canvas so the session bar's scrim always
+    has flat paper to fade into.
+  */
+  --canvas-wash:
+    radial-gradient(
+      1000px 680px at 50% -8%,
+      color-mix(in srgb, var(--accent) 11%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      820px 620px at 94% 22%,
+      color-mix(in srgb, #3d5f8a 7%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      680px 520px at 4% 74%,
+      color-mix(in srgb, var(--accent) 5%, transparent),
+      transparent 72%
+    );
+
+  /*
+    How far a language's accent is lifted toward the text colour before it is
+    used as ink. On paper a touch of ink carries the smallest labels past the
+    contrast floor; on the dark canvas the accents need a good deal of lift,
+    because every one of them was chosen to be legible on paper.
+  */
+  --accent-lift: 10%;
+
+  /* Scrollbars, which are part of the interface rather than the browser. */
+  --scroll-thumb: rgb(28 34 30 / 20%);
+  --scroll-thumb-hover: rgb(28 34 30 / 34%);
+
+  /* Elevation — used sparingly: the microphone, and menus that float. */
+  --lift-menu:
+    0 2px 6px rgb(28 34 30 / 6%), 0 18px 44px rgb(28 34 30 / 13%);
+  --lift-mic: 0 14px 34px rgb(9 86 64 / 26%);
+  --lift-mic-quiet: 0 6px 18px rgb(28 34 30 / 9%);
+
+  /* Motion — quick for feedback, unhurried only for the mic's journey. */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ease-travel: cubic-bezier(0.55, 0.05, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur-med: 240ms;
+  --dur-travel: 620ms;
 
   /* Typography */
   --font-ui:
@@ -43,7 +95,7 @@
   /* Radii */
   --radius-s: 8px;
   --radius-m: 12px;
-  --radius-l: 18px;
+  --radius-pill: 999px;
 
   color-scheme: light;
   font-family: var(--font-ui);
@@ -54,6 +106,61 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+  Dark is not the light theme inverted. The canvas keeps a green bias, the
+  text stays warm rather than clinical white, and the accent brightens just
+  enough to carry the weight it has on paper.
+*/
+:root[data-theme='dark'] {
+  --paper: #121614;
+  --paper-raised: #1a201d;
+  --ink: #e9e7e0;
+  --ink-soft: #b6bdb7;
+  --ink-mute: #8a938c;
+  --line: #262d29;
+  --line-strong: #3a423c;
+
+  --accent: #43a37c;
+  --accent-strong: #5cbb93;
+  --accent-ink: #7ad0a7;
+  --accent-tint: #1b2b24;
+  --accent-line: #2f5a47;
+
+  /* Deeper than the dark accent so the glyph on it keeps its contrast. */
+  --mic-face: #1d6a4f;
+  --mic-ink: #eef7f2;
+
+  --warn-bg: #2b2415;
+  --warn-ink: #e3c17d;
+  --warn-edge: #4d4026;
+  --danger-bg: #2e1c17;
+  --danger-ink: #eda58c;
+  --danger-edge: #543029;
+
+  --canvas-wash:
+    radial-gradient(
+      960px 660px at 50% -8%,
+      color-mix(in srgb, var(--accent) 9%, transparent),
+      transparent 68%
+    ),
+    radial-gradient(
+      800px 580px at 92% 26%,
+      color-mix(in srgb, #5c86b8 7%, transparent),
+      transparent 70%
+    );
+
+  --accent-lift: 46%;
+
+  --scroll-thumb: rgb(233 231 224 / 18%);
+  --scroll-thumb-hover: rgb(233 231 224 / 32%);
+
+  --lift-menu: 0 2px 6px rgb(0 0 0 / 34%), 0 18px 44px rgb(0 0 0 / 46%);
+  --lift-mic: 0 14px 34px rgb(0 0 0 / 46%);
+  --lift-mic-quiet: 0 6px 18px rgb(0 0 0 / 32%);
+
+  color-scheme: dark;
 }
 
 *,
@@ -96,6 +203,49 @@ button:disabled {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--radius-s);
+}
+
+/*
+  The scrolling surfaces wear the app's own scrollbar: a thin capsule that
+  floats clear of the edge, with no track and no stepper arrows, so a long
+  conversation still shows how far through it you are without a slab of
+  browser chrome down the side.
+*/
+.app-main,
+.language-menu {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+.app-main::-webkit-scrollbar,
+.language-menu::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.app-main::-webkit-scrollbar-track,
+.language-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-main::-webkit-scrollbar-button,
+.language-menu::-webkit-scrollbar-button {
+  display: none;
+}
+
+.app-main::-webkit-scrollbar-thumb,
+.language-menu::-webkit-scrollbar-thumb {
+  border: 2.5px solid transparent;
+  border-radius: var(--radius-pill);
+  /* Painting the thumb inside its padding box is what insets the capsule
+     from the edge without a track to sit in. */
+  background-clip: content-box;
+  background-color: var(--scroll-thumb);
+}
+
+.app-main:hover::-webkit-scrollbar-thumb,
+.language-menu:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scroll-thumb-hover);
 }
 
 .sr-only {

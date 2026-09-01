@@ -1,104 +1,23 @@
-import { useCallback, useEffect, useRef } from 'react'
-import {
-  controlIds,
-  controlLayout,
-  isControlDisabled,
-  type ControlId,
-} from '../types'
+import { useEffect } from 'react'
 
 type Args = {
-  isListening: boolean
-  controlRefs: React.RefObject<Record<ControlId, HTMLElement | null>>
-  demoDetailsRef: React.RefObject<HTMLDetailsElement | null>
+  /** Focusable controls in spatial order; arrow keys walk this list. */
+  controls: string[]
+  controlRefs: React.RefObject<Record<string, HTMLElement | null>>
 }
 
-// Arrow-key navigation across the language, microphone, and demo controls.
-// Native arrow-key behavior is preserved while either select is focused.
-export function useControlKeyboard({
-  isListening,
-  controlRefs,
-  demoDetailsRef,
-}: Args) {
-  const lastMicControlRef = useRef<'start' | 'stop'>('start')
-
-  const focusControl = useCallback(
-    (controlId: ControlId) => {
-      if (controlId === 'demo') {
-        const demoDetails = demoDetailsRef.current
-        if (demoDetails) demoDetails.open = true
-      }
-
-      if (controlId === 'start' || controlId === 'stop') {
-        lastMicControlRef.current = controlId
-      }
-
-      controlRefs.current[controlId]?.focus()
-    },
-    [controlRefs, demoDetailsRef],
-  )
-
+/**
+ * Arrow-key navigation across the controls currently on screen (language
+ * pickers, swap, microphone, session actions).
+ *
+ * The hook only ever *moves between* controls: it activates when focus is
+ * already on one of them, so arrow keys elsewhere keep their native behavior
+ * (scrolling the conversation, editing text). Open language menus handle
+ * their own keys and stop propagation, so the two never fight.
+ */
+export function useControlKeyboard({ controls, controlRefs }: Args) {
   useEffect(() => {
-    function getFocusedControl(): ControlId | null {
-      const focusedElement = document.activeElement
-      return (
-        controlIds.find(
-          (controlId) => controlRefs.current[controlId] === focusedElement,
-        ) ?? null
-      )
-    }
-
-    function enabledControl(controlId: ControlId | undefined) {
-      return controlId && !isControlDisabled(controlId, isListening)
-        ? controlId
-        : null
-    }
-
-    function getNextControl(
-      focusedControl: ControlId,
-      key: string,
-    ): ControlId | null {
-      if (
-        (focusedControl === 'start' || focusedControl === 'stop') &&
-        key === 'ArrowDown'
-      ) {
-        lastMicControlRef.current = focusedControl
-        return 'demo'
-      }
-
-      const rowIndex = controlLayout.findIndex((row) =>
-        row.includes(focusedControl),
-      )
-      const row = controlLayout[rowIndex]
-      if (!row) return null
-      const columnIndex = row.indexOf(focusedControl)
-
-      if (key === 'Home') {
-        return row.find((id) => !isControlDisabled(id, isListening)) ?? null
-      }
-      if (key === 'End') {
-        return (
-          row.findLast((id) => !isControlDisabled(id, isListening)) ?? null
-        )
-      }
-      if (key === 'ArrowLeft' || key === 'ArrowRight') {
-        return enabledControl(
-          row[columnIndex + (key === 'ArrowRight' ? 1 : -1)],
-        )
-      }
-      if (key === 'ArrowUp' || key === 'ArrowDown') {
-        const targetRow =
-          controlLayout[rowIndex + (key === 'ArrowDown' ? 1 : -1)]
-        if (!targetRow) return null
-        return (
-          enabledControl(targetRow[Math.min(columnIndex, targetRow.length - 1)]) ??
-          targetRow.find((id) => !isControlDisabled(id, isListening)) ??
-          null
-        )
-      }
-      return null
-    }
-
-    function handleControlShortcut(event: globalThis.KeyboardEvent) {
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (
         !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(
           event.key,
@@ -119,46 +38,32 @@ export function useControlKeyboard({
         return
       }
 
-      const focusedControl = getFocusedControl()
-      let nextControl = focusedControl
-        ? getNextControl(focusedControl, event.key)
-        : event.key === 'ArrowDown'
-          ? enabledControl(isListening ? 'stop' : 'start')
-          : event.key === 'ArrowUp'
-            ? 'target-language'
-            : null
-
-      if (!nextControl || isControlDisabled(nextControl, isListening)) return
-
-      event.preventDefault()
-      focusControl(nextControl)
-    }
-
-    window.addEventListener('keydown', handleControlShortcut)
-    return () => window.removeEventListener('keydown', handleControlShortcut)
-  }, [isListening, controlRefs, focusControl])
-
-  function handleDemoSelectKeyDown(event: React.KeyboardEvent<HTMLSelectElement>) {
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      event.preventDefault()
-    }
-
-    if (event.key === 'ArrowUp' && event.currentTarget.selectedIndex === 0) {
-      event.preventDefault()
-      if (demoDetailsRef.current) demoDetailsRef.current.open = false
-
-      const previousControl = isControlDisabled(
-        lastMicControlRef.current,
-        isListening,
+      const enabled = controls.filter((id) => {
+        const element = controlRefs.current[id]
+        return (
+          element && !(element as HTMLButtonElement).disabled
+        )
+      })
+      const currentIndex = enabled.findIndex(
+        (id) => controlRefs.current[id] === document.activeElement,
       )
-        ? isListening
-          ? 'stop'
-          : 'start'
-        : lastMicControlRef.current
+      if (currentIndex < 0) return
 
-      focusControl(previousControl)
+      let nextIndex: number
+      if (event.key === 'Home') nextIndex = 0
+      else if (event.key === 'End') nextIndex = enabled.length - 1
+      else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        nextIndex = currentIndex + 1
+      } else {
+        nextIndex = currentIndex - 1
+      }
+      if (nextIndex < 0 || nextIndex >= enabled.length) return
+
+      event.preventDefault()
+      controlRefs.current[enabled[nextIndex]]?.focus()
     }
-  }
 
-  return { focusControl, handleDemoSelectKeyDown }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [controls, controlRefs])
 }

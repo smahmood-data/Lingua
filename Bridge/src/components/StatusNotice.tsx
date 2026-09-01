@@ -1,28 +1,34 @@
-import { statusMeta } from '../data/mockTranscripts'
-import type { AppStatus } from '../types'
+import type { SessionError, SessionErrorCode } from '../lib/translation'
 import './StatusNotice.css'
 
-// Problem states get one clear inline notice with a next step.
-// Loading is handled by the transcript's connecting state instead.
-export function StatusNotice({
-  status,
-  detail,
-}: {
-  status: AppStatus
-  detail?: string
-}) {
-  const meta = statusMeta[status]
-  if (!meta.noticeTitle) return null
+const NOTICE_TITLES: Record<SessionErrorCode, string> = {
+  'microphone-permission-denied': 'Microphone access was denied',
+  'microphone-unavailable': 'No microphone was found',
+  'unsupported-browser': 'This browser can’t run live translation',
+  'token-request-failed': 'Could not reach the Lingua server',
+  'live-connection-failed': 'Could not connect to the interpreter',
+  'live-disconnected': 'Connection lost',
+  unknown: 'Something went wrong with translation',
+}
+
+const CALM_CODES = new Set<SessionErrorCode>([
+  'microphone-permission-denied',
+  'microphone-unavailable',
+  'unsupported-browser',
+])
+
+/**
+ * One calm inline notice for when a session fails. The message comes from the
+ * session layer, which keeps it free of tokens and server internals; the UI
+ * only adds a title and a tone.
+ */
+export function StatusNotice({ error }: { error: SessionError }) {
+  const tone = CALM_CODES.has(error.code) ? 'warning' : 'danger'
 
   return (
-    <div
-      className={`status-notice notice-${meta.tone}`}
-      role={status === 'error' || status === 'denied' ? 'alert' : 'status'}
-    >
-      <div className="notice-text">
-        <p className="notice-title">{meta.noticeTitle}</p>
-        <p className="notice-detail">{detail ?? meta.noticeDetail}</p>
-      </div>
+    <div className={`status-notice notice-${tone}`} role="alert">
+      <p className="notice-title">{NOTICE_TITLES[error.code]}</p>
+      <p className="notice-detail">{error.message}</p>
     </div>
   )
 }

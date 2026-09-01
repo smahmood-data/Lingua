@@ -1,19 +1,15 @@
-import {
-  AUTO_SOURCE_LANGUAGE,
-  languageMetaFromCode,
-  type AppStatus,
-  type SourceLanguageCode,
-  type SupportedLanguageCode,
-} from '../types'
-import { statusMeta } from '../data/mockTranscripts'
+import type { CSSProperties } from 'react'
+import { languageMetaFromCode, type SupportedLanguageCode } from '../types'
+import { languageColor } from '../languageDisplay'
+import type { Theme } from '../hooks/useTheme'
 import './TopBar.css'
 
-function RouteGlyph() {
+function PairGlyph() {
   return (
     <svg
-      className="pair-swap"
-      width="14"
-      height="14"
+      className="pair-glyph"
+      width="15"
+      height="15"
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden="true"
@@ -29,62 +25,123 @@ function RouteGlyph() {
   )
 }
 
-function StatusIndicator({ status }: { status: AppStatus }) {
-  const meta = statusMeta[status]
-
+function SunIcon() {
   return (
-    <div
-      className={`status-indicator status-${meta.tone}`}
-      aria-live="polite"
-      aria-label={`Status: ${meta.label}`}
-    >
-      <span className="status-dot" aria-hidden="true" />
-      <span className="status-label">{meta.label}</span>
-    </div>
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <circle cx="10" cy="10" r="3.6" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M10 1.8v2M10 16.2v2M18.2 10h-2M3.8 10h-2M15.8 4.2l-1.4 1.4M5.6 14.4l-1.4 1.4M15.8 15.8l-1.4-1.4M5.6 5.6 4.2 4.2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
   )
 }
 
-export function TopBar({
-  status,
-  sourceLanguage,
-  targetLanguage,
+function MoonIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function PairSide({
+  code,
+  fallback,
+  side,
 }: {
-  status: AppStatus
-  sourceLanguage: SourceLanguageCode
-  targetLanguage: SupportedLanguageCode
+  code: SupportedLanguageCode | null
+  /** Shown while Auto has not yet learned this side. */
+  fallback: string
+  side: 'start' | 'end'
 }) {
-  const source =
-    sourceLanguage === AUTO_SOURCE_LANGUAGE
-      ? null
-      : languageMetaFromCode(sourceLanguage)
-  const target = languageMetaFromCode(targetLanguage)
-  const sourceLabel = source?.label ?? 'Auto-detect'
+  const meta = code ? languageMetaFromCode(code) : null
+  return (
+    <span
+      className="pair-side"
+      data-side={side}
+      style={
+        {
+          '--pair-accent': code ? languageColor(code) : 'var(--line-strong)',
+        } as CSSProperties
+      }
+    >
+      <span className="pair-dot" aria-hidden="true" />
+      <span lang={meta?.htmlLang || undefined}>{meta?.label ?? fallback}</span>
+    </span>
+  )
+}
+
+/**
+ * The masthead is part of the canvas, not a bar across the top of it: no
+ * divider, no background of its own, no status readout — state belongs with
+ * the microphone. The wordmark is a single lockup in which the Arabic lām
+ * *is* the L of Lingua, so the mark and the name are one thing.
+ *
+ * Once a conversation exists, the pair being interpreted sits beneath the
+ * wordmark, hung off the exchange glyph so that glyph lands on the canvas's
+ * centre line however long the two language names happen to be.
+ */
+export function TopBar({
+  session,
+  leftCode,
+  rightCode,
+  theme,
+  onToggleTheme,
+}: {
+  /** Whether a conversation is on screen (live, ended, or failed). */
+  session: boolean
+  /** The left side of the pair: the explicit or detected counterpart. */
+  leftCode: SupportedLanguageCode | null
+  rightCode: SupportedLanguageCode
+  theme: Theme
+  onToggleTheme: () => void
+}) {
+  const left = leftCode ? languageMetaFromCode(leftCode) : null
+  const right = languageMetaFromCode(rightCode)
+  const dark = theme === 'dark'
 
   return (
-    <header className="topbar">
-      <div className="brand">
-        {/* lām — the "L" of Lingua — anchors the wordmark */}
-        <span className="brand-mark" aria-hidden="true" lang="ar">
+    <header className="masthead">
+      <h1 className="wordmark">
+        <span className="sr-only">Lingua</span>
+        {/* lām — read as the L, set in its own script. */}
+        <span className="wordmark-lam" aria-hidden="true" lang="ar">
           ل
         </span>
-        <h1 className="brand-name">Lingua</h1>
-      </div>
+        <span className="wordmark-stem" aria-hidden="true">
+          ingua
+        </span>
+      </h1>
 
-      <p
-        className="language-pair"
-        aria-label={`${sourceLabel} and ${target.label} two-way translation`}
+      {session ? (
+        <p
+          className="masthead-pair"
+          aria-label={`Interpreting between ${left?.label ?? 'the detected language'} and ${right.label}`}
+        >
+          <PairSide code={leftCode} fallback="Detecting…" side="start" />
+          <PairGlyph />
+          <PairSide code={rightCode} fallback={right.label} side="end" />
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        className="theme-toggle"
+        onClick={onToggleTheme}
+        aria-pressed={dark}
+        aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+        title={dark ? 'Switch to light theme' : 'Switch to dark theme'}
       >
-        <span className="pair-full">
-          {sourceLabel} <RouteGlyph />{' '}
-          <span lang={target.htmlLang}>{target.label}</span>
-        </span>
-        <span className="pair-short" aria-hidden="true">
-          {source?.code.toUpperCase() ?? 'Auto'} <RouteGlyph />{' '}
-          {target.code.toUpperCase()}
-        </span>
-      </p>
-
-      <StatusIndicator status={status} />
+        {dark ? <SunIcon /> : <MoonIcon />}
+      </button>
     </header>
   )
 }
