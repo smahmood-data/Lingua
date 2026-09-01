@@ -4,6 +4,14 @@ import {
   END_OF_SPEECH_SILENCE_MS,
 } from '../src/lib/translation/config.js'
 
+const { checkRateLimitMock } = vi.hoisted(() => ({
+  checkRateLimitMock: vi.fn(),
+}))
+
+vi.mock('@vercel/firewall', () => ({
+  checkRateLimit: checkRateLimitMock,
+}))
+
 class TestResponse {
   statusCode = 200
   body: unknown
@@ -26,6 +34,10 @@ class TestResponse {
 describe('Vercel live-token function', () => {
   beforeEach(() => {
     vi.stubEnv('GEMINI_API_KEY', 'test-server-key')
+    vi.stubEnv('LIVE_TOKEN_RATE_LIMIT_ID', 'lingua-live-token')
+    vi.stubEnv('LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS', '600')
+    checkRateLimitMock.mockReset()
+    checkRateLimitMock.mockResolvedValue({ rateLimited: false })
   })
 
   afterEach(() => {
@@ -45,6 +57,26 @@ describe('Vercel live-token function', () => {
     )
 
     expect(response.statusCode).toBe(400)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps the long-lived key required on the server', async () => {
+    vi.stubEnv('GEMINI_API_KEY', '')
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const { default: handler } = await import('./live-token.js')
+    const response = new TestResponse()
+
+    await handler(
+      { method: 'GET', query: { source: 'en', target: 'fr' } },
+      response,
+    )
+
+    expect(response.statusCode).toBe(500)
+    expect(response.body).toEqual({
+      error: 'Configuration Error',
+      message: 'GEMINI_API_KEY is not configured on the server.',
+    })
+    expect(checkRateLimitMock).not.toHaveBeenCalled()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -78,19 +110,42 @@ describe('Vercel live-token function', () => {
     const response = new TestResponse()
 
     await handler(
-      { method: 'GET', query: { source: 'en', target: 'fr' } },
+      {
+        method: 'GET',
+        query: { source: 'en', target: 'fr' },
+        headers: {
+          host: 'lingua.example',
+          'x-real-ip': '203.0.113.10',
+        },
+      },
       response,
     )
 
     expect(response.statusCode).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
     expect(response.body).toMatchObject({
       token: 'auth_tokens/test-token',
       sourceLanguage: 'en',
       targetLanguage: 'fr',
       systemInstruction: expect.stringContaining('English'),
     })
+    expect(checkRateLimitMock).toHaveBeenCalledWith('lingua-live-token', {
+      headers: {
+        host: 'lingua.example',
+        'x-real-ip': '203.0.113.10',
+      },
+    })
     const request = fetchMock.mock.calls[0]?.[1]
     const body = JSON.parse(String(request?.body))
+    expect(body).toMatchObject({
+      uses: 1,
+      bidiGenerateContentSetup: {
+        model: 'models/gemini-3.5-live-translate-preview',
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+        },
+      },
+    })
     expect(body.bidiGenerateContentSetup.generationConfig).toMatchObject({
       translationConfig: {
         targetLanguageCode: 'fr',
@@ -110,6 +165,153 @@ describe('Vercel live-token function', () => {
         },
       },
     })
+  })
+
+  it('bounds repeated creation with a safe retryable response', async () => {
+    checkRateLimitMock
+      .mockResolvedValueOnce({ rateLimited: false })
+      .mockResolvedValueOnce({ rateLimited: false })
+      .mockResolvedValueOnce({ rateLimited: true })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ name: 'auth_tokens/test-token' }), {
+          status: 200,
+        }),
+    )
+    const { default: handler } = await import('./live-token.js')
+    const responses = [new TestResponse(), new TestResponse(), new TestResponse()]
+
+    for (const response of responses) {
+      await handler(
+        { method: 'GET', query: { source: 'en', target: 'fr' } },
+        response,
+      )
+    }
+
+    expect(responses.map((response) => response.statusCode)).toEqual([
+      200,
+      200,
+      429,
+    ])
+    expect(responses[2]?.headers.get('Retry-After')).toBe('600')
+    expect(responses[2]?.body).toEqual({
+      error: 'Live Session Limit Reached',
+      code: 'live_token_rate_limited',
+      message:
+        'This network has started too many live sessions. Try again in 10 minutes.',
+      retryable: true,
+      retryAfterSeconds: 600,
+    })
+    expect(JSON.stringify(responses[2]?.body)).not.toContain('test-server-key')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns safe retry metadata for upstream Gemini throttling', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const { default: handler } = await import('./live-token.js')
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: { message: 'private provider details' } }),
+        { status: 429, headers: { 'Retry-After': '17' } },
+      ),
+    )
+    const rateLimited = new TestResponse()
+    await handler(
+      { method: 'GET', query: { source: 'en', target: 'fr' } },
+      rateLimited,
+    )
+
+    expect(rateLimited.statusCode).toBe(429)
+    expect(rateLimited.headers.get('Retry-After')).toBe('17')
+    expect(rateLimited.body).toEqual({
+      error: 'Gemini API Error',
+      code: 'live_token_upstream_rate_limited',
+      message:
+        'Live-token creation is temporarily rate-limited. Try again in 17 seconds.',
+      retryable: true,
+      retryAfterSeconds: 17,
+    })
+    expect(JSON.stringify(rateLimited.body)).not.toContain(
+      'private provider details',
+    )
+
+    fetchMock.mockResolvedValueOnce(new Response('not-json', { status: 503 }))
+    const unavailable = new TestResponse()
+    await handler(
+      { method: 'GET', query: { source: 'en', target: 'fr' } },
+      unavailable,
+    )
+
+    expect(unavailable.statusCode).toBe(503)
+    expect(unavailable.headers.get('Retry-After')).toBeUndefined()
+    expect(unavailable.body).toEqual({
+      error: 'Gemini API Error',
+      code: 'live_token_upstream_unavailable',
+      message:
+        'Live-token creation is temporarily unavailable. Try again later.',
+      retryable: true,
+    })
+  })
+
+  it('explains when the protection rule is not configured', async () => {
+    checkRateLimitMock.mockResolvedValue({
+      rateLimited: false,
+      error: 'not-found',
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const { default: handler } = await import('./live-token.js')
+    const response = new TestResponse()
+
+    await handler(
+      { method: 'GET', query: { source: 'en', target: 'fr' } },
+      response,
+    )
+
+    expect(response.statusCode).toBe(503)
+    expect(response.headers.get('Retry-After')).toBeUndefined()
+    expect(response.body).toEqual({
+      error: 'Live Session Protection Error',
+      code: 'live_token_protection_not_configured',
+      message:
+        'Live sessions are unavailable because abuse protection is not configured. Contact the site owner.',
+      retryable: false,
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('fails closed with retry guidance when protection cannot be checked', async () => {
+    checkRateLimitMock.mockResolvedValueOnce({
+      rateLimited: true,
+      error: 'blocked',
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const { default: handler } = await import('./live-token.js')
+    const responses = [new TestResponse(), new TestResponse()]
+
+    await handler(
+      { method: 'GET', query: { source: 'en', target: 'fr' } },
+      responses[0]!,
+    )
+    checkRateLimitMock.mockRejectedValue(new Error('firewall unavailable'))
+    await handler(
+      { method: 'GET', query: { source: 'en', target: 'fr' } },
+      responses[1]!,
+    )
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(503)
+      expect(response.headers.get('Retry-After')).toBe('30')
+      expect(response.body).toEqual({
+        error: 'Live Session Protection Unavailable',
+        code: 'live_token_protection_unavailable',
+        message:
+          'Live-session protection could not be checked. Try again in 30 seconds.',
+        retryable: true,
+        retryAfterSeconds: 30,
+      })
+    }
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('accepts Norwegian Bokmål as a target language', async () => {

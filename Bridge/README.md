@@ -44,7 +44,7 @@ const {
 ```
 
 - `state` is `connecting`, `listening`, `translating`, `stopped`, or `error`.
-- `error` is `null` or `{ code, message, recoverable }`. `code` is always one of
+- `error` is `null` or `{ code, message, recoverable, retryAfterSeconds? }`. `code` is always one of
   the values in `SESSION_ERROR_CODES` — never a raw browser error code — so it is
   safe to switch on for UI copy and retry guidance.
 - `transcript` holds finalised turns: `{ id, kind, text, languageCode, isFinal }`.
@@ -63,6 +63,13 @@ const {
 
 Nothing is persisted: the transcript exists only for the current page load.
 
+An active session also stops after five minutes without Gemini-detected user
+speech, with a warning 15 seconds before expiry. Speech start or end resets the
+deadline; translated audio does not. Override the build-time, non-secret
+`VITE_LIVE_IDLE_TIMEOUT_SECONDS` and `VITE_LIVE_IDLE_WARNING_SECONDS` values
+when a deployment needs a different policy. Keep the warning shorter than the
+timeout.
+
 ### Dependency on the server
 
 The browser connects to Gemini Live with a short-lived ephemeral token from
@@ -71,7 +78,10 @@ is never read by frontend code. `vite.config.ts` proxies `/api` to
 `http://localhost:3001` in development. On Vercel, `api/live-token.ts` provides
 the same route as a serverless function when the project root is this `Bridge`
 directory. Set `GEMINI_API_KEY` in Vercel's server-side environment settings;
-no frontend environment variable is needed.
+no frontend environment variable is needed. The deployed function also requires
+the `lingua-live-token` Vercel Firewall rule documented in the root
+[live-token abuse-protection section](../README.md#live-token-abuse-protection);
+without that rule, token creation fails closed with HTTP 503.
 
 `src/lib/translation/tokenProvider.ts` is the only frontend file that knows the
 wire shape. It consumes the merged issue #1 contract:

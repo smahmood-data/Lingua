@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { rateLimit } from 'express-rate-limit';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -29,6 +30,15 @@ const LIVE_NEW_SESSION_TTL_SECONDS = toPositiveInteger(
   process.env.LIVE_NEW_SESSION_TTL_SECONDS,
   60,
 );
+const LIVE_TOKEN_RATE_LIMIT_MAX = toPositiveInteger(
+  process.env.LIVE_TOKEN_RATE_LIMIT_MAX,
+  60,
+);
+const LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS = toPositiveInteger(
+  process.env.LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS,
+  10 * 60,
+);
+const TRUST_PROXY_HOPS = toPositiveInteger(process.env.TRUST_PROXY_HOPS, 0);
 
 const SUPPORTED_TARGET_LANGUAGES = [
   'af',
@@ -187,6 +197,39 @@ type GeminiInteractionResponse = {
   }>;
 };
 
+if (TRUST_PROXY_HOPS > 0) {
+  // Only enable forwarded client IPs when the operator knows exactly how many
+  // trusted reverse-proxy hops overwrite X-Forwarded-For before this process.
+  app.set('trust proxy', TRUST_PROXY_HOPS);
+}
+
+const liveTokenRateLimiter = rateLimit({
+  windowMs: LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS * 1000,
+  limit: LIVE_TOKEN_RATE_LIMIT_MAX,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  identifier: 'live-token',
+  // Validation and upstream failures do not create usable tokens and therefore
+  // should not spend the successful-token allowance.
+  skipFailedRequests: true,
+  handler: (_request, response) => {
+    const retryAfterHeader = response.getHeader('Retry-After');
+    const retryAfterSeconds = toPositiveInteger(
+      typeof retryAfterHeader === 'string' ? retryAfterHeader : undefined,
+      LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS,
+    );
+    response.status(429).json({
+      error: 'Live Session Limit Reached',
+      code: 'live_token_rate_limited',
+      message: `This network has started too many live sessions. Try again in ${retryDelay(
+        retryAfterSeconds,
+      )}.`,
+      retryable: true,
+      retryAfterSeconds,
+    });
+  },
+});
+
 const summarySchema = {
   type: 'object',
   additionalProperties: false,
@@ -284,7 +327,9 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
-app.get('/api/live-token', async (req: Request, res: Response) => {
+app.use('/api/live-token', setNoStoreResponse);
+
+app.get('/api/live-token', liveTokenRateLimiter, async (req: Request, res: Response) => {
   const route = normalizeTranslationRoute(
     req.query.target,
     req.query.source,
@@ -332,7 +377,7 @@ app.get('/api/live-token', async (req: Request, res: Response) => {
       systemInstruction: route.systemInstruction,
     });
   } catch (error) {
-    sendGeminiError(res, error, 'Unable to create Gemini Live token.');
+    sendLiveTokenGeminiError(res, error);
   }
 });
 
@@ -504,7 +549,11 @@ async function parseGeminiResponse<T>(response: globalThis.Response): Promise<T>
 
   if (!response.ok) {
     const message = getGeminiErrorMessage(data, response.status);
-    throw new GeminiApiError(response.status, message);
+    const retryAfterSeconds =
+      response.status === 429 || response.status === 503
+        ? readRetryAfterSeconds(response.headers.get('Retry-After'))
+        : undefined;
+    throw new GeminiApiError(response.status, message, retryAfterSeconds);
   }
 
   return data as T;
@@ -729,6 +778,19 @@ function toPositiveInteger(value: string | undefined, fallback: number): number 
   return Number.isInteger(number) && number > 0 ? number : fallback;
 }
 
+function retryDelay(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  }
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
+function readRetryAfterSeconds(value: string | null): number | undefined {
+  const seconds = Number.parseInt(value ?? '', 10);
+  return Number.isInteger(seconds) && seconds > 0 ? seconds : undefined;
+}
+
 function getErrorStatus(error: unknown): number {
   if (error && typeof error === 'object' && 'status' in error) {
     const status = error.status;
@@ -773,6 +835,11 @@ function sendConfigurationError(res: Response) {
   });
 }
 
+function setNoStoreResponse(_req: Request, res: Response, next: NextFunction) {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}
+
 function sendGeminiError(res: Response, error: unknown, fallbackMessage: string) {
   const status = error instanceof GeminiApiError ? error.status : 502;
   const message = error instanceof GeminiApiError ? error.message : fallbackMessage;
@@ -783,12 +850,46 @@ function sendGeminiError(res: Response, error: unknown, fallbackMessage: string)
   });
 }
 
+function sendLiveTokenGeminiError(res: Response, error: unknown) {
+  const status = error instanceof GeminiApiError ? error.status : 502;
+
+  if (status === 429 || status === 503) {
+    const retryAfterSeconds =
+      error instanceof GeminiApiError ? error.retryAfterSeconds : undefined;
+    if (retryAfterSeconds !== undefined) {
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+    }
+
+    const isRateLimited = status === 429;
+    const message = isRateLimited
+      ? 'Live-token creation is temporarily rate-limited.'
+      : 'Live-token creation is temporarily unavailable.';
+    const retryMessage = retryAfterSeconds
+      ? ` Try again in ${retryDelay(retryAfterSeconds)}.`
+      : ' Try again later.';
+
+    return res.status(status).json({
+      error: 'Gemini API Error',
+      code: isRateLimited
+        ? 'live_token_upstream_rate_limited'
+        : 'live_token_upstream_unavailable',
+      message: `${message}${retryMessage}`,
+      retryable: true,
+      ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+    });
+  }
+
+  return sendGeminiError(res, error, 'Unable to create Gemini Live token.');
+}
+
 class GeminiApiError extends Error {
   status: number;
+  retryAfterSeconds?: number;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, retryAfterSeconds?: number) {
     super(message);
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 

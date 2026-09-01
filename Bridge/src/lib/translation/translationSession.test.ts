@@ -375,6 +375,153 @@ describe('TranslationSession startup ownership', () => {
   })
 })
 
+describe('TranslationSession idle protection', () => {
+  beforeEach(() => {
+    dependencies.createPlaybackScheduler.mockReset()
+    dependencies.startMicrophoneCapture.mockReset()
+    dependencies.connectLiveTransport.mockReset()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-29T20:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function startIdleProtectedSession() {
+    const captureResource = capture()
+    const playbackResource = playback()
+    const transportResource = transport()
+    const connectedEvents: LiveTransportEvents[] = []
+
+    dependencies.createPlaybackScheduler.mockResolvedValue(playbackResource)
+    dependencies.startMicrophoneCapture.mockResolvedValue(captureResource)
+    dependencies.connectLiveTransport.mockImplementation(
+      async (options: LiveTransportOptions) => {
+        connectedEvents.push(options.events)
+        return transportResource
+      },
+    )
+
+    const controller = new TranslationSession({
+      tokenProvider: vi.fn(async () => ({
+        token: 'auth_tokens/test-ephemeral-token',
+        model: 'test-live-model',
+        systemInstruction: 'Test instruction',
+      })),
+      idleTimeoutMs: 1_000,
+      idleWarningLeadMs: 200,
+    })
+    await controller.start('auto', 'en')
+    const events = connectedEvents[0]
+    if (!events) throw new Error('The Live route did not expose its events.')
+
+    return {
+      controller,
+      events,
+      captureResource,
+      playbackResource,
+      transportResource,
+    }
+  }
+
+  it('warns shortly before a silent session expires', async () => {
+    const { controller } = await startIdleProtectedSession()
+
+    await vi.advanceTimersByTimeAsync(799)
+    expect(controller.getSnapshot().idleWarningEndsAt).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(controller.getSnapshot()).toMatchObject({
+      state: 'listening',
+      idleWarningEndsAt: Date.now() + 200,
+    })
+
+    await controller.stop()
+  })
+
+  it('clears the warning and restarts the deadline when speech begins', async () => {
+    const { controller, events } = await startIdleProtectedSession()
+
+    await vi.advanceTimersByTimeAsync(800)
+    expect(controller.getSnapshot().idleWarningEndsAt).not.toBeNull()
+
+    events.onSpeechStart(1)
+    expect(controller.getSnapshot().idleWarningEndsAt).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(799)
+    expect(controller.getSnapshot().idleWarningEndsAt).toBeNull()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(controller.getSnapshot().idleWarningEndsAt).toBe(Date.now() + 200)
+
+    await controller.stop()
+  })
+
+  it('stops and releases every resource when inactivity continues', async () => {
+    const {
+      controller,
+      captureResource,
+      playbackResource,
+      transportResource,
+    } = await startIdleProtectedSession()
+    const stopped = new Promise<void>((resolveStopped) => {
+      const unsubscribe = controller.subscribe((snapshot) => {
+        if (snapshot.state !== 'stopped') return
+        unsubscribe()
+        resolveStopped()
+      })
+    })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    await stopped
+
+    expect(controller.getSnapshot()).toMatchObject({
+      state: 'stopped',
+      idleWarningEndsAt: null,
+      idleTimeoutEndedAt: Date.now(),
+    })
+    expect(captureResource.stop).toHaveBeenCalledOnce()
+    expect(playbackResource.dispose).toHaveBeenCalledOnce()
+    expect(transportResource.close).toHaveBeenCalledOnce()
+  })
+
+  it('does not report inactivity when the user ends the session', async () => {
+    const { controller } = await startIdleProtectedSession()
+
+    await vi.advanceTimersByTimeAsync(800)
+    await controller.stop()
+
+    expect(controller.getSnapshot()).toMatchObject({
+      state: 'stopped',
+      idleWarningEndsAt: null,
+      idleTimeoutEndedAt: null,
+    })
+  })
+
+  it('clears the inactivity notice when a new session starts', async () => {
+    const { controller } = await startIdleProtectedSession()
+    const stopped = new Promise<void>((resolveStopped) => {
+      const unsubscribe = controller.subscribe((snapshot) => {
+        if (snapshot.state !== 'stopped') return
+        unsubscribe()
+        resolveStopped()
+      })
+    })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    await stopped
+    expect(controller.getSnapshot().idleTimeoutEndedAt).not.toBeNull()
+
+    await controller.start()
+    expect(controller.getSnapshot()).toMatchObject({
+      state: 'listening',
+      idleTimeoutEndedAt: null,
+    })
+
+    await controller.stop()
+  })
+})
+
 
 
 /**
