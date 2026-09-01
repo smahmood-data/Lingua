@@ -99,6 +99,18 @@ async function liveTokenResponseError(response: Response) {
         { retryAfterSeconds },
       )
     }
+    case 'live_token_upstream_rate_limited':
+    case 'live_token_upstream_unavailable': {
+      const isRateLimited = body.code === 'live_token_upstream_rate_limited'
+      const delay = retryAfterSeconds
+        ? ` Try again in ${retryDelay(retryAfterSeconds)}.`
+        : ' Try again later.'
+      return sessionError(
+        'token-request-failed',
+        `Live-token creation is temporarily ${isRateLimited ? 'rate-limited' : 'unavailable'}.${delay}`,
+        { retryAfterSeconds },
+      )
+    }
     default:
       return sessionError('token-request-failed')
   }

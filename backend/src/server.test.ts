@@ -31,11 +31,17 @@ const { app } = await import('./server.js');
 const originalFetch = globalThis.fetch;
 const geminiTokenRequests: RequestInit[] = [];
 let useRealGemini = false;
+let nextGeminiTokenResponse: Response | undefined;
 
 globalThis.fetch = async (input, init) => {
   const url = input instanceof Request ? input.url : String(input);
   if (!useRealGemini && url.endsWith('/auth_tokens')) {
     geminiTokenRequests.push(init ?? {});
+    if (nextGeminiTokenResponse) {
+      const response = nextGeminiTokenResponse;
+      nextGeminiTokenResponse = undefined;
+      return response;
+    }
     return new Response(
       JSON.stringify({ name: `auth_tokens/test-${geminiTokenRequests.length}` }),
       { status: 200 },
@@ -135,6 +141,7 @@ test('live token stays one-use and locked to audio translation', async () => {
   geminiTokenRequests.length = 0;
   const response = await liveToken('source=en&target=fr', '203.0.113.30');
   assert.equal(response.status, 200, await response.text());
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(geminiTokenRequests.length, 1);
 
   const body = JSON.parse(String(geminiTokenRequests[0]?.body));
@@ -172,6 +179,7 @@ test('live token limits repeated creation per client with retry guidance', async
     [200, 200, 200, 429],
   );
   assert.equal(geminiTokenRequests.length, 3);
+  assert.equal(responses[3]?.headers.get('cache-control'), 'no-store');
   assert.match(responses[3]?.headers.get('retry-after') ?? '', /^\d+$/);
   const limitedBody = await responses[3]?.json();
   assert.equal(limitedBody.error, 'Live Session Limit Reached');
@@ -188,6 +196,44 @@ test('live token limits repeated creation per client with retry guidance', async
     '203.0.113.41',
   );
   assert.equal(otherClient.status, 200);
+});
+
+test('live token safely reports retryable Gemini throttling', async () => {
+  nextGeminiTokenResponse = new Response(
+    JSON.stringify({ error: { message: 'private provider details' } }),
+    { status: 429, headers: { 'Retry-After': '17' } },
+  );
+  const rateLimited = await liveToken(
+    'source=en&target=fr',
+    '203.0.113.60',
+  );
+  assert.equal(rateLimited.status, 429);
+  assert.equal(rateLimited.headers.get('retry-after'), '17');
+  const rateLimitedBody = await rateLimited.json();
+  assert.deepEqual(rateLimitedBody, {
+    error: 'Gemini API Error',
+    code: 'live_token_upstream_rate_limited',
+    message:
+      'Live-token creation is temporarily rate-limited. Try again in 17 seconds.',
+    retryable: true,
+    retryAfterSeconds: 17,
+  });
+  assert.doesNotMatch(JSON.stringify(rateLimitedBody), /private provider details/);
+
+  nextGeminiTokenResponse = new Response('not-json', { status: 503 });
+  const unavailable = await liveToken(
+    'source=en&target=fr',
+    '203.0.113.61',
+  );
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.headers.get('retry-after'), null);
+  assert.deepEqual(await unavailable.json(), {
+    error: 'Gemini API Error',
+    code: 'live_token_upstream_unavailable',
+    message:
+      'Live-token creation is temporarily unavailable. Try again later.',
+    retryable: true,
+  });
 });
 
 test('summary validates transcript before requiring Gemini configuration', async () => {

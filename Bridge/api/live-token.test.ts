@@ -122,6 +122,7 @@ describe('Vercel live-token function', () => {
     )
 
     expect(response.statusCode).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
     expect(response.body).toMatchObject({
       token: 'auth_tokens/test-token',
       sourceLanguage: 'en',
@@ -203,6 +204,54 @@ describe('Vercel live-token function', () => {
     })
     expect(JSON.stringify(responses[2]?.body)).not.toContain('test-server-key')
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns safe retry metadata for upstream Gemini throttling', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const { default: handler } = await import('./live-token.js')
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: { message: 'private provider details' } }),
+        { status: 429, headers: { 'Retry-After': '17' } },
+      ),
+    )
+    const rateLimited = new TestResponse()
+    await handler(
+      { method: 'GET', query: { source: 'en', target: 'fr' } },
+      rateLimited,
+    )
+
+    expect(rateLimited.statusCode).toBe(429)
+    expect(rateLimited.headers.get('Retry-After')).toBe('17')
+    expect(rateLimited.body).toEqual({
+      error: 'Gemini API Error',
+      code: 'live_token_upstream_rate_limited',
+      message:
+        'Live-token creation is temporarily rate-limited. Try again in 17 seconds.',
+      retryable: true,
+      retryAfterSeconds: 17,
+    })
+    expect(JSON.stringify(rateLimited.body)).not.toContain(
+      'private provider details',
+    )
+
+    fetchMock.mockResolvedValueOnce(new Response('not-json', { status: 503 }))
+    const unavailable = new TestResponse()
+    await handler(
+      { method: 'GET', query: { source: 'en', target: 'fr' } },
+      unavailable,
+    )
+
+    expect(unavailable.statusCode).toBe(503)
+    expect(unavailable.headers.get('Retry-After')).toBeUndefined()
+    expect(unavailable.body).toEqual({
+      error: 'Gemini API Error',
+      code: 'live_token_upstream_unavailable',
+      message:
+        'Live-token creation is temporarily unavailable. Try again later.',
+      retryable: true,
+    })
   })
 
   it('explains when the protection rule is not configured', async () => {

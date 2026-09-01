@@ -64,6 +64,41 @@ describe('live token protection errors', () => {
     })
   })
 
+  it('keeps upstream throttling safe while preserving retry guidance', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'live_token_upstream_rate_limited',
+          message: 'private provider details',
+        }),
+        { status: 429, headers: { 'Retry-After': '17' } },
+      ),
+    )
+
+    await expect(createLiveTokenProvider()(request)).rejects.toEqual({
+      code: 'token-request-failed',
+      message:
+        'Live-token creation is temporarily rate-limited. Try again in 17 seconds.',
+      recoverable: true,
+      retryAfterSeconds: 17,
+    })
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ code: 'live_token_upstream_unavailable' }),
+        { status: 503 },
+      ),
+    )
+
+    await expect(createLiveTokenProvider()(request)).rejects.toEqual({
+      code: 'token-request-failed',
+      message:
+        'Live-token creation is temporarily unavailable. Try again later.',
+      recoverable: true,
+    })
+  })
+
   it('does not expose unrecognised server errors', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(

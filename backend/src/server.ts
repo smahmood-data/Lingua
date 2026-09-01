@@ -327,6 +327,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
+app.use('/api/live-token', setNoStoreResponse);
+
 app.get('/api/live-token', liveTokenRateLimiter, async (req: Request, res: Response) => {
   const route = normalizeTranslationRoute(
     req.query.target,
@@ -375,7 +377,7 @@ app.get('/api/live-token', liveTokenRateLimiter, async (req: Request, res: Respo
       systemInstruction: route.systemInstruction,
     });
   } catch (error) {
-    sendGeminiError(res, error, 'Unable to create Gemini Live token.');
+    sendLiveTokenGeminiError(res, error);
   }
 });
 
@@ -547,7 +549,11 @@ async function parseGeminiResponse<T>(response: globalThis.Response): Promise<T>
 
   if (!response.ok) {
     const message = getGeminiErrorMessage(data, response.status);
-    throw new GeminiApiError(response.status, message);
+    const retryAfterSeconds =
+      response.status === 429 || response.status === 503
+        ? readRetryAfterSeconds(response.headers.get('Retry-After'))
+        : undefined;
+    throw new GeminiApiError(response.status, message, retryAfterSeconds);
   }
 
   return data as T;
@@ -780,6 +786,11 @@ function retryDelay(seconds: number): string {
   return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 }
 
+function readRetryAfterSeconds(value: string | null): number | undefined {
+  const seconds = Number.parseInt(value ?? '', 10);
+  return Number.isInteger(seconds) && seconds > 0 ? seconds : undefined;
+}
+
 function getErrorStatus(error: unknown): number {
   if (error && typeof error === 'object' && 'status' in error) {
     const status = error.status;
@@ -824,6 +835,11 @@ function sendConfigurationError(res: Response) {
   });
 }
 
+function setNoStoreResponse(_req: Request, res: Response, next: NextFunction) {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}
+
 function sendGeminiError(res: Response, error: unknown, fallbackMessage: string) {
   const status = error instanceof GeminiApiError ? error.status : 502;
   const message = error instanceof GeminiApiError ? error.message : fallbackMessage;
@@ -834,12 +850,46 @@ function sendGeminiError(res: Response, error: unknown, fallbackMessage: string)
   });
 }
 
+function sendLiveTokenGeminiError(res: Response, error: unknown) {
+  const status = error instanceof GeminiApiError ? error.status : 502;
+
+  if (status === 429 || status === 503) {
+    const retryAfterSeconds =
+      error instanceof GeminiApiError ? error.retryAfterSeconds : undefined;
+    if (retryAfterSeconds !== undefined) {
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+    }
+
+    const isRateLimited = status === 429;
+    const message = isRateLimited
+      ? 'Live-token creation is temporarily rate-limited.'
+      : 'Live-token creation is temporarily unavailable.';
+    const retryMessage = retryAfterSeconds
+      ? ` Try again in ${retryDelay(retryAfterSeconds)}.`
+      : ' Try again later.';
+
+    return res.status(status).json({
+      error: 'Gemini API Error',
+      code: isRateLimited
+        ? 'live_token_upstream_rate_limited'
+        : 'live_token_upstream_unavailable',
+      message: `${message}${retryMessage}`,
+      retryable: true,
+      ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+    });
+  }
+
+  return sendGeminiError(res, error, 'Unable to create Gemini Live token.');
+}
+
 class GeminiApiError extends Error {
   status: number;
+  retryAfterSeconds?: number;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, retryAfterSeconds?: number) {
     super(message);
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 

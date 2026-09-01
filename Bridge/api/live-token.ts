@@ -76,6 +76,11 @@ function retryDelay(seconds: number) {
   return `${minutes} minute${minutes === 1 ? '' : 's'}`
 }
 
+function readRetryAfterSeconds(value: string | null) {
+  const seconds = Number.parseInt(value ?? '', 10)
+  return Number.isInteger(seconds) && seconds > 0 ? seconds : undefined
+}
+
 function sendRateLimitError(response: ApiResponse) {
   response.setHeader(
     'Retry-After',
@@ -112,6 +117,41 @@ function sendProtectionUnavailableError(response: ApiResponse) {
     )}.`,
     retryable: true,
     retryAfterSeconds: LIVE_TOKEN_PROTECTION_RETRY_SECONDS,
+  })
+}
+
+function sendGeminiTokenError(
+  response: ApiResponse,
+  statusCode: number,
+  retryAfterSeconds?: number,
+) {
+  if (statusCode === 429 || statusCode === 503) {
+    if (retryAfterSeconds !== undefined) {
+      response.setHeader('Retry-After', String(retryAfterSeconds))
+    }
+
+    const isRateLimited = statusCode === 429
+    const message = isRateLimited
+      ? 'Live-token creation is temporarily rate-limited.'
+      : 'Live-token creation is temporarily unavailable.'
+    const retryMessage = retryAfterSeconds
+      ? ` Try again in ${retryDelay(retryAfterSeconds)}.`
+      : ' Try again later.'
+
+    return response.status(statusCode).json({
+      error: 'Gemini API Error',
+      code: isRateLimited
+        ? 'live_token_upstream_rate_limited'
+        : 'live_token_upstream_unavailable',
+      message: `${message}${retryMessage}`,
+      retryable: true,
+      ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+    })
+  }
+
+  return response.status(statusCode).json({
+    error: 'Gemini API Error',
+    message: 'Unable to create a Gemini Live token.',
   })
 }
 
@@ -257,13 +297,17 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       signal: AbortSignal.timeout(30_000),
     })
 
-    const tokenBody = (await geminiResponse.json()) as GeminiAuthTokenResponse
     if (!geminiResponse.ok) {
-      return response.status(geminiResponse.status).json({
-        error: 'Gemini API Error',
-        message: 'Unable to create a Gemini Live token.',
-      })
+      return sendGeminiTokenError(
+        response,
+        geminiResponse.status,
+        geminiResponse.status === 429 || geminiResponse.status === 503
+          ? readRetryAfterSeconds(geminiResponse.headers.get('Retry-After'))
+          : undefined,
+      )
     }
+
+    const tokenBody = (await geminiResponse.json()) as GeminiAuthTokenResponse
 
     const token = tokenBody.authToken ?? tokenBody
     if (!token.name?.startsWith('auth_tokens/')) {
