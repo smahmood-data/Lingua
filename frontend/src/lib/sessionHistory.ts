@@ -35,6 +35,16 @@ export function saveSession(session: SavedSession): SavedSession[] {
   return sessions
 }
 
+export function clearSavedSessions(): void {
+  try { localStorage.removeItem(STORAGE_KEY) } catch { /* Storage may be unavailable. */ }
+}
+
+export function deleteSavedSession(id: string): SavedSession[] {
+  const sessions = loadSavedSessions().filter((session) => session.id !== id)
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions)) } catch { /* Storage may be unavailable. */ }
+  return sessions
+}
+
 export function formatTranscript(session: SavedSession, format: 'markdown' | 'text' = 'markdown'): string {
   const date = new Date(session.endedAt).toLocaleString()
   const lines = session.turns.flatMap((turn, index) => {
