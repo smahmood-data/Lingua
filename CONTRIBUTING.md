@@ -21,7 +21,7 @@ Suggested workstreams:
 - `feature/summary-api` — transcript schema, Gemini extraction, validation, tests
 - `feature/summary-ui` — summary cards, accessibility, README, demo, pitch
 
-Avoid having multiple teammates make large simultaneous edits to `Bridge/src/App.tsx`. Agree on component boundaries early and commit new components in separate files.
+Avoid having multiple teammates make large simultaneous edits to `frontend/src/App.tsx`. Agree on component boundaries early and commit new components in separate files.
 
 ## Commits
 
@@ -83,7 +83,7 @@ if git grep -nE "$secret_pattern" -- ':!.env.example' ':!**/.env.example'; then
   echo "Potential credential found; inspect the matches before continuing." >&2
   exit 1
 fi
-cd Bridge && npm run lint && npm run build
+cd frontend && npm run lint && npm run build
 ```
 
 Review any secret-scan match manually. Keep the GitHub repository public if that is required by the official hackathon rules, and confirm those rules directly rather than relying only on planning notes.

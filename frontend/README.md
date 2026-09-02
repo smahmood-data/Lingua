@@ -1,6 +1,16 @@
 # Lingua frontend
 
-This directory contains the React + TypeScript + Vite client. Project-wide product scope, architecture, and team workflow are documented in the [root README](../README.md).
+This directory is the canonical React + TypeScript + Vite package and the
+Vercel project root. Project-wide product scope, architecture, and team workflow
+are documented in the [root README](../README.md). The complete package and
+runtime ownership map is in
+[`docs/REPOSITORY_STRUCTURE.md`](../docs/REPOSITORY_STRUCTURE.md).
+
+The code has two runtime boundaries inside this package:
+
+- `src/` is browser code and must never read server secrets.
+- `api/` contains Vercel-only serverless functions. It is not used by the Vite
+  development server, which proxies `/api` to `../backend` instead.
 
 ## Requirements
 
@@ -13,7 +23,7 @@ This directory contains the React + TypeScript + Vite client. Project-wide produ
 From the repository root:
 
 ```bash
-cd Bridge
+cd frontend
 npm ci
 npm run dev
 ```
@@ -24,6 +34,7 @@ Open the local URL printed by Vite. The live harness uses the Node/Express backe
 
 ```bash
 npm run lint
+npm test
 npm run build
 ```
 
@@ -76,8 +87,8 @@ The browser connects to Gemini Live with a short-lived ephemeral token from
 `GET /api/live-token`. The long-lived `GEMINI_API_KEY` stays on the server and
 is never read by frontend code. `vite.config.ts` proxies `/api` to
 `http://localhost:3001` in development. On Vercel, `api/live-token.ts` provides
-the same route as a serverless function when the project root is this `Bridge`
-directory. Set `GEMINI_API_KEY` in Vercel's server-side environment settings;
+the same route as a serverless function when the Vercel project root is this
+`frontend` directory. Set `GEMINI_API_KEY` in Vercel's server-side environment settings;
 no frontend environment variable is needed. The deployed function also requires
 the `lingua-live-token` Vercel Firewall rule documented in the root
 [live-token abuse-protection section](../README.md#live-token-abuse-protection);

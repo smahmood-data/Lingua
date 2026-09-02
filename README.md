@@ -29,20 +29,36 @@ Misunderstanding detection is a stretch goal. Authentication, a database, call i
 
 ## Current status
 
-The repository contains a React + TypeScript + Vite frontend in [`Bridge/`](./Bridge) and a TypeScript Express backend in [`backend/`](./backend). The frontend now exposes Gemini Live Translate's complete supported target-language list, with automatic source-language detection and English as the default output. Microphone capture, PCM conversion, streamed playback, and transcript events live behind the `useTranslationSession` hook. The developer harness is documented in the [frontend README](./Bridge/README.md).
+The repository contains a React + TypeScript + Vite package in
+[`frontend/`](./frontend) and a TypeScript Express service in
+[`backend/`](./backend). The frontend exposes Gemini Live Translate's complete
+supported target-language list, with automatic source-language detection and
+English as the default output. Microphone capture, PCM conversion, streamed
+playback, and transcript events live behind the `useTranslationSession` hook.
+The developer harness is documented in the
+[frontend README](./frontend/README.md), and the canonical package/deployment
+boundaries are recorded in
+[`docs/REPOSITORY_STRUCTURE.md`](./docs/REPOSITORY_STRUCTURE.md).
 
 ## Architecture & Security
 
 ```text
 Browser (React + Vite)
-  ├─ microphone capture, translated audio playback, and transcript state
-  └─ GET /api/live-token → short-lived constrained Gemini Live token
-     POST /api/summarize → validated Gemini structured output
+  ├─ local /api/* → Vite proxy → backend/ (Express)
+  │    ├─ GET /api/live-token
+  │    └─ POST /api/summarize
+  └─ Vercel GET /api/live-token → frontend/api/live-token.ts
 ```
 
-The Gemini API key remains on the backend. The browser receives only a short-lived Live API token, and transcript summaries are validated before being returned to the frontend.
+The long-lived Gemini key remains server-side: in the Express process during
+local development and in the Vercel Function at deployment. The browser
+receives only a short-lived Live API token, and transcript summaries returned by
+Express are schema-validated.
 
-For Vercel, [`Bridge/api/live-token.ts`](./Bridge/api/live-token.ts) provides the same secure token route inside the deployed frontend project. Set `GEMINI_API_KEY` as a server-side Vercel environment variable; never expose it as a `VITE_*` variable. The Vercel project root must be `Bridge`.
+For Vercel, [`frontend/api/live-token.ts`](./frontend/api/live-token.ts) is the
+intentional deployment adapter inside the frontend project. Set
+`GEMINI_API_KEY` as a server-side Vercel environment variable; never expose it
+as a `VITE_*` variable. The Vercel project root must be `frontend`.
 
 ### Live-token abuse protection
 
@@ -76,12 +92,13 @@ Backend commands: `npm run check`, `npm run build`, `npm test`, and `npm start`.
 In a second terminal:
 
 ```bash
-cd Bridge
+cd frontend
 npm ci
 npm run dev
 ```
 
-Validate the frontend with `npm run lint` and `npm run build` from `Bridge/`.
+Validate the frontend with `npm run lint`, `npm test`, and `npm run build` from
+`frontend/`.
 
 ## Structured summary contract
 
@@ -90,6 +107,7 @@ The transcript-analysis endpoint returns a validated object containing `summary`
 ## Documentation
 
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) - system architecture, user journey, runtime sequences, summary flow, and issue dependencies
+- [`docs/REPOSITORY_STRUCTURE.md`](./docs/REPOSITORY_STRUCTURE.md) - package ownership, local/Vercel request paths, environment boundaries, and the repository-layout audit
 - [`docs/ROADMAP.md`](./docs/ROADMAP.md) - ordered prototype backlog, dependencies, demo script, and submission checklist
 - [`docs/REPOSITORY_SETTINGS.md`](./docs/REPOSITORY_SETTINGS.md) - owner-only GitHub protection and merge settings
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) - branches, commits, pull requests, and team workflow
