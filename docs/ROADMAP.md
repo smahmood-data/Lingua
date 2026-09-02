@@ -1,57 +1,83 @@
-# Lingua Hackathon Prototype Roadmap
+# Lingua Roadmap
 
-Lingua's hackathon prototype runs on one laptop. One person speaks Urdu and hears English; the other speaks English and hears Urdu. The interface shows bilingual subtitles and may produce a short summary when the conversation ends.
+Lingua is a live voice interpreter for conversations where misunderstanding is
+expensive. One phone or laptop sits between two people. It detects the spoken
+language (or uses an explicit pair), translates into any of 79 target languages,
+speaks the translation aloud, and shows both sides as bilingual subtitles.
 
-Third-party call integration, authentication, persistence, and a database are outside the prototype scope.
+The original hackathon slice was a one-laptop Urdu ↔ English prototype. That
+work is done. The product is now the broader interpreter described here.
 
-## Definition of done
+Accounts, server-side storage, call integrations, and true sharing stay out of
+scope until privacy, consent, and access-control decisions exist.
 
-- Urdu speech produces understandable English audio.
-- English speech produces understandable Urdu audio.
-- A clear control switches the active translation direction.
-- The UI shows original and translated transcript turns.
-- Microphone, network, and model failures are recoverable.
-- The API key remains server-side.
-- Pull requests pass CI before they are merged.
-- The summary is included only if two-way translation is already reliable.
+## Built
 
-## Ordered issues
+- Secure ephemeral Live-token exchange. The long-lived Gemini key never reaches
+  the browser. Local Express and the Vercel Function implement the same
+  `/api/live-token` contract.
+- Per-IP abuse protection and idle-session cleanup.
+- Automatic spoken-language detection, plus explicit source/target pairs.
+- Live translation into 79 target languages, spoken aloud.
+- Two concurrent Gemini Live routes coordinated as one conversation — turn
+  ownership, utterance joining, and language arbitration.
+- Live bilingual subtitles with per-turn language labels.
+- A single interpreter canvas: idle, live session, and ended-conversation
+  compositions. Light and dark themes follow the system setting.
+- CI, trace-replay regression tests, and a scored summary-extraction benchmark.
+- A deployed demo at [bridgev1.vercel.app](https://bridgev1.vercel.app).
 
-| Order | Issue | Story points | Dependencies |
-| --- | --- | ---: | --- |
-| 1 | [#1 Set up secure Gemini backend and shared types](https://github.com/smahmood-data/Lingua/issues/1) | 2 | None |
-| 2 | [#2 Translate spoken Urdu into English audio](https://github.com/smahmood-data/Lingua/issues/2) | 5 | #1 |
-| 3 | [#3 Translate spoken English into Urdu audio](https://github.com/smahmood-data/Lingua/issues/3) | 5 | #1, #2 |
-| 4 | [#4 Build the interpreter UI and bilingual subtitles](https://github.com/smahmood-data/Lingua/issues/4) | 3 | #2, #3 |
-| 5 | [#5 Generate an end-of-conversation summary](https://github.com/smahmood-data/Lingua/issues/5) | 3 | #1, #2, #3 |
-| 6 | [#6 Add automated tests and GitHub Actions CI](https://github.com/smahmood-data/Lingua/issues/6) | 2 | #1; feature tests land with their features |
-| 7 | [#7 Prepare the deployed demo and submission](https://github.com/smahmood-data/Lingua/issues/7) | 2 | #2, #3, #4, #6; #5 only if stable |
+Completed hackathon issues (#1–#4, plus the live-audio follow-ups through
+[#22](https://github.com/smahmood-data/Lingua/issues/22) and the interpreter
+overhaul in [#27](https://github.com/smahmood-data/Lingua/issues/27)) are
+history, not remaining work.
 
-Issues are intentionally unassigned until the team agrees on ownership. Use one branch and pull request per issue, and include `Closes #<number>` in the pull request description.
+## Partial
 
-## Recommended parallel work
+- **Structured summary.** `POST /api/summarize` and the evaluation harness in
+  [`eval/`](../eval) exist and are tested. Nothing in the UI calls them, and
+  Vercel does not serve the route. Finishing the product path is
+  [#5](https://github.com/smahmood-data/Lingua/issues/5). Provenance grounding
+  is [#25](https://github.com/smahmood-data/Lingua/issues/25). Persistent
+  history is not a prerequisite.
+- **Barge-in.** Implemented and unit-tested, shipped disabled
+  (`BARGE_IN_ENABLED = false`). The echo gate false-triggered on continued
+  speech and speaker residue in recorded sessions. Re-enable or redesign after
+  [#29](https://github.com/smahmood-data/Lingua/issues/29). Tracked as
+  [#28](https://github.com/smahmood-data/Lingua/issues/28).
 
-- Start #1 first because it defines the secure server boundary and shared contracts.
-- Once the contracts are agreed, one contributor can build #2 while another builds #4 against mocks.
-- Build #3 by reusing #2 rather than creating a second audio architecture.
-- Set up #6 early enough that feature pull requests receive checks.
-- Treat #5 as optional. Cut it before weakening #2 or #3.
-- Use #7 only for validation, deployment, documentation, and rehearsal—not new features.
+## Next
 
-## Demo fixture
+The immediate priority is making Auto Detect, turn boundaries, and two-route
+language arbitration reliable. History and export wait until that contract is
+stable.
 
-Use a fixed conversation that contains concrete details:
+| Order | Work | Issue |
+| --- | --- | --- |
+| 1 | Stabilize Auto Detect, turn boundaries, and language arbitration | [#29](https://github.com/smahmood-data/Lingua/issues/29) |
+| 2 | Define conversation-side semantics for the transcript | [#33](https://github.com/smahmood-data/Lingua/issues/33) |
+| 3 | Wire the existing summary API into a summary UI | [#5](https://github.com/smahmood-data/Lingua/issues/5) |
+| 4 | Keep the translated voice consistent across turns | [#34](https://github.com/smahmood-data/Lingua/issues/34) |
+| 5 | Microphone-level telemetry and an amplitude-driven waveform | [#35](https://github.com/smahmood-data/Lingua/issues/35) |
+| 6 | Reliable barge-in during translated playback | [#28](https://github.com/smahmood-data/Lingua/issues/28) |
+| 7 | Persistent conversation history and search | [#36](https://github.com/smahmood-data/Lingua/issues/36) |
+| 8 | Local transcript export | [#37](https://github.com/smahmood-data/Lingua/issues/37) |
 
-> Your appointment is September 12 at 3:30 PM at the Queens location. Please arrive at 3:15 PM and bring your insurance card and photo ID.
+[#35](https://github.com/smahmood-data/Lingua/issues/35) can proceed in
+parallel with [#29](https://github.com/smahmood-data/Lingua/issues/29).
+[#28](https://github.com/smahmood-data/Lingua/issues/28) depends on #29.
+[#5](https://github.com/smahmood-data/Lingua/issues/5) does not depend on
+[#36](https://github.com/smahmood-data/Lingua/issues/36).
 
-The Urdu-speaking participant acknowledges the details and asks whether bloodwork is required. The English-speaking participant confirms it must be completed before the appointment.
+## Deferred
 
-If #5 is implemented, the expected summary contains:
-
-- Appointment: September 12 at 3:30 PM
-- Arrival: 3:15 PM
-- Location: Queens location
-- Documents: insurance card and photo ID
-- Next step: complete bloodwork before the appointment
-
-Do not hard-code these values into production components. They are a fixture for UI development, tests, and rehearsal.
+- **Saved history, search, and transcript export** are not built. Local export
+  ([#37](https://github.com/smahmood-data/Lingua/issues/37)) is a user-controlled
+  download of the current conversation. It is not sharing.
+- **True sharing or cloud sync** needs backend storage, access control,
+  retention, consent, and privacy decisions. Do not treat it as a follow-on of
+  local export.
+- **Accounts and identity.**
+- **Third-party call integrations.**
+- **Spending caps and identity-based rate limits.** The current limit is per-IP
+  and protects a demo; see [`SECURITY.md`](./SECURITY.md).

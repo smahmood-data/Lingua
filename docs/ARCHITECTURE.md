@@ -1,6 +1,13 @@
 # Lingua Architecture and Flows
 
-These diagrams describe the hackathon MVP: one laptop translates spoken Urdu and English in both directions, displays bilingual subtitles, and optionally produces a structured summary when the conversation ends.
+These diagrams describe the current live interpreter: one device translates
+spoken language into any of 79 targets, plays the translation aloud, and shows
+bilingual subtitles. Auto Detect can learn the other language of the pair;
+users can also lock an explicit source and target.
+
+The structured-summary path exists on the local Express backend and is
+evaluated in [`eval/`](../eval). It is not wired into the product UI, and the
+Vercel deployment does not serve it.
 
 ## System architecture and secure token flow
 
@@ -22,53 +29,110 @@ flowchart LR
     Express -->|"Return short-lived token locally"| Browser
     Function -->|"Return short-lived token on Vercel"| Browser
     Browser <-->|"Live audio and transcript events"| Live["Gemini Live Translate"]
-    Browser -->|"local POST /api/summarize with transcript"| Express
-    Express -->|"Structured extraction request"| Flash["Gemini Flash"]
-    Flash -->|"Structured result"| Express
-    Express -->|"Validated summary"| Browser
+    Browser -.->|"local only: POST /api/summarize"| Express
+    Express -.->|"Structured extraction request"| Flash["Gemini Flash"]
+    Flash -.->|"Structured result"| Express
+    Express -.->|"Validated summary — no UI consumer yet"| Browser
 ```
 
-## Three-screen user journey
+Local Vite proxies `/api/*` to Express. Production Vercel serves only
+`GET /api/live-token` from `frontend/api/live-token.ts`. `POST /api/summarize`
+and `GET /api/health` stay on `backend/`.
+
+## Interpreter canvas
+
+The app is one canvas, not a three-screen setup → conversation → summary
+wizard. `App.tsx` switches among three compositions of the same shell:
 
 ```mermaid
 flowchart LR
-    Setup["1. Setup<br/>Choose Urdu and English<br/>Start conversation"]
-    Conversation["2. Conversation<br/>Hear translated audio<br/>Read bilingual subtitles"]
-    Summary["3. Summary<br/>Review appointments, documents,<br/>next steps, and clarifications"]
+    Idle["Idle<br/>Language pair and hero microphone"]
+    Session["Live session<br/>Subtitles, docked microphone,<br/>connecting / listening / translating / playing"]
+    Ended["Ended<br/>Transcript remains on screen<br/>Start new or clear"]
 
-    Setup -->|"Start"| Conversation
-    Conversation -->|"End conversation"| Summary
-    Summary -->|"Start another"| Setup
+    Idle -->|"Start conversation"| Session
+    Session -->|"End conversation"| Ended
+    Ended -->|"Start new conversation"| Session
+    Ended -->|"Clear transcript"| Idle
 ```
+
+There is no summary screen. Ending a conversation leaves the in-memory
+transcript visible until the user starts again or clears it. Closing the tab
+discards it.
+
+Session states a person watching the microphone would name:
+`connecting`, `listening`, `translating`, `playing`, `stopped`, and `error`.
+`translating` and `playing` are separate: only the second means speech is
+coming out of the speakers.
+
+## Live session internals
+
+A Gemini Live Translate session has one `targetLanguageCode` and no source
+field, so one socket can only ever render *into* one language. A two-person
+conversation therefore uses two concurrent Live routes that both hear the same
+microphone for the whole session. Neither is restarted between turns.
+
+- **Primary route** — opened at session start; translates into the selected
+  target language.
+- **Return route** — translates into the other language. Opened immediately
+  for an explicit pair. In Auto mode it opens when
+  `ConversationCoordinator` adopts a counterpart language.
+
+`TranslationSession` owns microphone capture, token requests, sockets,
+playback, and the idle timeout. `liveTransport.ts` normalizes provider events
+and does not decide turns. `ConversationCoordinator` is the authority for turn
+ownership, accepted language, and what plays. `playbackScheduler` plays PCM16
+and reports actual start and end, so Playing → Listening happens when speech
+has finished — not when the model stops generating.
+
+Both sockets always receive a continuous stream. While translated speech is
+audible (and for a short echo tail after), the microphone sends silence so the
+session does not interpret its own speakers. Barge-in is implemented behind
+`BARGE_IN_ENABLED` and ships disabled; see
+[`ROADMAP.md`](./ROADMAP.md).
 
 ## Live translation sequence
 
-The same sequence is reused with the languages reversed for English to Urdu.
-
 ```mermaid
 sequenceDiagram
-    actor Speaker as Urdu speaker
+    actor Speakers as Conversation participants
     participant Browser as Lingua browser
     participant Server as Server-side token adapter
     participant Gemini as Gemini Live Translate
 
-    Speaker->>Browser: Start Urdu to English session
-    Browser->>Server: Request ephemeral Live token
+    Speakers->>Browser: Start conversation
+    Browser->>Server: Request ephemeral Live token for the target route
     Server-->>Browser: Return constrained short-lived token
     Browser->>Browser: Request microphone permission
-    Browser->>Gemini: Connect using ephemeral token
-    loop While the session is active
-        Speaker->>Browser: Speak Urdu
-        Browser->>Gemini: Stream microphone audio
-        Gemini-->>Browser: Stream English audio and transcript events
-        Browser-->>Speaker: Play English audio and show subtitles
+    Browser->>Gemini: Open primary Live route into the target language
+    opt Explicit source language, or Auto after a counterpart is learned
+        Browser->>Server: Request ephemeral Live token for the return route
+        Server-->>Browser: Return constrained short-lived token
+        Browser->>Gemini: Open return Live route into the other language
     end
-    Speaker->>Browser: Stop session
-    Browser->>Gemini: Close Live connection
+    loop While the session is active
+        Speakers->>Browser: Speak into the shared microphone
+        Browser->>Gemini: Stream the same audio to every open route
+        Gemini-->>Browser: Audio and transcript events from each route
+        Browser->>Browser: Coordinator accepts one turn and language
+        Browser-->>Speakers: Play translated audio and show bilingual subtitles
+        Note over Browser: Playing ends only after playback actually finishes
+    end
+    Speakers->>Browser: Stop session
+    Browser->>Gemini: Close Live connections
     Browser->>Browser: Release microphone and playback resources
 ```
 
+Manual checks should cover a normal two-way session (for example English ↔
+Bengali) and the Playing → Listening completion path, not only the first
+utterance.
+
 ## End-of-conversation summary flow
+
+This path is backend-only. The UI does not collect a transcript for summary,
+does not call `POST /api/summarize`, and has no summary cards. The diagram is
+the intended product flow once [#5](https://github.com/smahmood-data/Lingua/issues/5)
+is finished.
 
 ```mermaid
 flowchart TD
@@ -84,10 +148,10 @@ flowchart TD
 ```
 
 > **Build status.** The `POST /api/summarize` endpoint, its schema validation,
-> and the scored benchmark in [`eval/`](../eval) are implemented and tested.
-> Nothing in the UI calls the endpoint yet, so the "Render summary cards" step
-> above describes the intended flow rather than shipped behaviour. Tracked in
-> [#5](https://github.com/smahmood-data/Lingua/issues/5).
+> and the scored benchmark in [`eval/`](../eval) are implemented and tested on
+> the local Express backend. Nothing in the UI calls the endpoint. Vercel does
+> not deploy it. Tracked in [#5](https://github.com/smahmood-data/Lingua/issues/5).
+> Provenance grounding of extracted facts is [#25](https://github.com/smahmood-data/Lingua/issues/25).
 
 ### Summary response contract
 
@@ -109,32 +173,5 @@ Missing information yields an empty array, never a fabricated value. Output that
 does not match the schema is rejected server-side rather than passed to the
 client.
 
-## Issue dependency map
-
-Issues #2 and #4 can begin against mocks while #1 is in progress, but their final integration depends on the secure backend and shared contracts from #1.
-
-```mermaid
-flowchart LR
-    I1["#1 Secure backend and shared types"]
-    I2["#2 Urdu to English audio"]
-    I3["#3 English to Urdu audio"]
-    I4["#4 Interpreter UI and subtitles"]
-    I5["#5 Conversation summary"]
-    I6["#6 Tests and CI"]
-    I7["#7 Demo and submission"]
-
-    I1 --> I2
-    I1 --> I3
-    I2 --> I3
-    I2 --> I4
-    I3 --> I4
-    I1 --> I5
-    I2 --> I5
-    I3 --> I5
-    I1 --> I6
-    I2 --> I7
-    I3 --> I7
-    I4 --> I7
-    I6 --> I7
-    I5 -.->|"Include only if stable"| I7
-```
+Follow-up product work lives in [`ROADMAP.md`](./ROADMAP.md), not in a
+hackathon issue graph.
