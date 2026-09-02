@@ -115,9 +115,7 @@ Create and publish an `@vercel/firewall` rate-limit rule with:
 The Function intentionally fails closed with HTTP 503 if this rule is missing,
 blocked, or unavailable. If the dashboard threshold changes, keep
 `LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS` aligned so `Retry-After` guidance remains
-accurate. See the root README's
-[abuse-protection section](../README.md#live-token-abuse-protection) for the
-policy and limitations.
+accurate. See [`SECURITY.md`](./SECURITY.md) for the policy and its limitations.
 
 ## Verification
 

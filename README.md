@@ -1,103 +1,85 @@
+<div align="center">
+
 # Lingua
 
-> Translation tells you what someone said. Lingua helps you understand what happens next.
+**Translation tells you what someone said. Lingua helps you understand what happens next.**
 
-Lingua is a real-time conversation assistant for people who are not fluent in English. It is designed for high-stakes conversations with schools, doctors, landlords, banks, government offices, and other service providers.
+[**Try the live demo →**](https://bridgev1.vercel.app)
 
-During a conversation, Lingua automatically detects the spoken language, translates it into a selected language, reads the translation aloud, and displays live subtitles. At the end, it can turn the transcript into a concise, preferred-language summary of appointments, deadlines, instructions, locations, required documents, decisions, and anything that may need clarification.
+[![CI](https://github.com/smahmood-data/Lingua/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/smahmood-data/Lingua/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Languages](https://img.shields.io/badge/languages-79-2f855a.svg)](frontend/src/types.ts)
 
-## Hackathon MVP
+<img src="docs/images/lingua-hero-dark.png" alt="Lingua's opening screen: a single microphone button above an automatic source-language selector and an English target-language selector." width="840">
 
-The first demo focuses on one complete path:
+</div>
 
-1. Leave speech detection on Auto and choose the language to translate into (English by default).
-2. Start a live translated conversation.
-3. Hear translated speech and read live subtitles.
-4. End the conversation.
-5. Receive a structured action summary in the user's preferred language.
+---
 
-### Success criteria
+## What it is
 
-- Spoken language is detected automatically.
-- Urdu, French, Chinese, Spanish, and the rest of Gemini Live Translate's supported languages can be translated to English audio.
-- The target can be changed from English to any supported language.
-- Each detected speaker language produces a clearly labelled transcript turn.
-- The final screen extracts at least an appointment, arrival time, location, and required documents from the demo script.
-- No Gemini API key is exposed in browser code or committed to Git.
+Lingua is a real-time voice interpreter for the conversations where misunderstanding is expensive — with a school, a doctor, a landlord, a bank, or a government office.
 
-Misunderstanding detection is a stretch goal. Authentication, a database, call integrations, saved history, and additional service-specific portals are intentionally outside the hackathon MVP.
+Put one phone or laptop between two people. Lingua detects the spoken language automatically, translates it, speaks the translation aloud, and shows both sides as live subtitles. Neither person has to pick their own language, tap to switch turns, or know how the app works.
 
-## Current status
+It is built on Gemini Live Translate, and the long-lived API key never reaches the browser.
 
-The repository contains a React + TypeScript + Vite package in
-[`frontend/`](./frontend) and a TypeScript Express service in
-[`backend/`](./backend). The frontend exposes Gemini Live Translate's complete
-supported target-language list, with automatic source-language detection and
-English as the default output. Microphone capture, PCM conversion, streamed
-playback, and transcript events live behind the `useTranslationSession` hook.
-The developer harness is documented in the
-[frontend README](./frontend/README.md), and the canonical package/deployment
-boundaries are recorded in
-[`docs/REPOSITORY_STRUCTURE.md`](./docs/REPOSITORY_STRUCTURE.md).
+## Status
 
-The canonical production alias is
-[`https://bridgev1.vercel.app`](https://bridgev1.vercel.app). Repository-owned
-deployment settings live in `frontend/vercel.json`; the required Vercel and
-GitHub owner steps and the redacting smoke check are in
-[`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
+This started as a hackathon project and is still an MVP. What is and is not built:
 
-## Architecture & Security
+| Capability | Status |
+| --- | --- |
+| Automatic spoken-language detection | ✅ Working |
+| Live translation into 79 target languages, spoken aloud | ✅ Working |
+| Live bilingual subtitles with per-turn language labels | ✅ Working |
+| Secure ephemeral-token exchange; key never in the browser | ✅ Working |
+| Per-IP abuse protection and idle-session cleanup | ✅ Working |
+| Deployed and reachable | ✅ [bridgev1.vercel.app](https://bridgev1.vercel.app) |
+| Structured end-of-conversation summary | ⚠️ **Backend only** — the API and its evaluation harness exist and are tested; **there is no summary screen in the app yet** ([#5](https://github.com/smahmood-data/Lingua/issues/5)) |
+| Barge-in (talking over the translation) | ⚠️ **Implemented but disabled** — see [Known limitations](#known-limitations) ([#28](https://github.com/smahmood-data/Lingua/issues/28)) |
+| Saved history, search, transcript export | ❌ Not built ([#36](https://github.com/smahmood-data/Lingua/issues/36), [#37](https://github.com/smahmood-data/Lingua/issues/37)) |
+| Accounts, storage, call integrations | ❌ Deliberately out of scope |
 
-```text
-Browser (React + Vite)
-  ├─ local /api/* → Vite proxy → backend/ (Express)
-  │    ├─ GET /api/live-token
-  │    └─ POST /api/summarize
-  └─ Vercel GET /api/live-token → frontend/api/live-token.ts
+## Screens
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/lingua-hero-light.png" alt="The same opening screen in the light theme." ></td>
+<td width="50%"><img src="docs/images/lingua-languages.png" alt="The target-language picker open, listing languages with flags and their native names." ></td>
+</tr>
+<tr>
+<td align="center"><em>Light and dark themes follow the system setting</em></td>
+<td align="center"><em>79 target languages, each with its native name</em></td>
+</tr>
+</table>
+
+<div align="center">
+<img src="docs/images/lingua-mobile.png" alt="Lingua on a phone-sized screen, with the microphone and both language selectors stacked vertically." width="300">
+<br><em>The layout is built for a phone laid on a desk between two people</em>
+</div>
+
+## Try it
+
+The fastest path is the [live demo](https://bridgev1.vercel.app) — allow microphone access and speak.
+
+To run it locally you need Node.js 20.19+ (24.x for the frontend), npm, and a [Gemini API key](https://aistudio.google.com/apikey).
+
+```bash
+git clone https://github.com/smahmood-data/Lingua.git
+cd Lingua
 ```
 
-The long-lived Gemini key remains server-side: in the Express process during
-local development and in the Vercel Function at deployment. The browser
-receives only a short-lived Live API token, and transcript summaries returned by
-Express are schema-validated.
-
-For Vercel, [`frontend/api/live-token.ts`](./frontend/api/live-token.ts) is the
-intentional deployment adapter inside the frontend project. Set
-`GEMINI_API_KEY` as a server-side Vercel environment variable; never expose it
-as a `VITE_*` variable. The Vercel project root must be `frontend`.
-
-### Live-token abuse protection
-
-The default anonymous policy allows 60 successful token creations per client IP in a fixed 10-minute window. A normal explicit-language conversation creates two tokens, so the default leaves room for about 30 starts, or 15 people each making one full restart/retry, behind the same public IP during that window. Keeping a conversation open for 5–10 minutes does not itself create more tokens. A limited request returns HTTP 429 with a short explanation, a stable error code, `retryAfterSeconds`, and `Retry-After`; invalid requests and upstream failures do not consume the local Express server's successful-token allowance. `LIVE_TOKEN_RATE_LIMIT_MAX` and `LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS` adjust the local policy.
-
-The Vercel function uses Vercel Firewall for a distributed counter. Before deploying it, create and publish an `@vercel/firewall` rate-limit rule with ID `lingua-live-token`, a fixed window of 60 requests per 600 seconds, the client IP as its key, and 429 as its exceeded action. The rule threshold remains configurable in Vercel. Its ID can be changed with the server-only `LIVE_TOKEN_RATE_LIMIT_ID`; if the window changes, set `LIVE_TOKEN_RATE_LIMIT_WINDOW_SECONDS` to the same number so retry guidance remains accurate. The function returns an actionable HTTP 503 and does not contact Gemini when the rule is missing, blocked, or unavailable, so a deployment cannot silently fail open.
-
-The Express counter is intentionally in memory because that server is the single-process local-development path. Keep `TRUST_PROXY_HOPS=0` when it is reached directly. If it is placed behind a reverse proxy, set the value only to the exact number of trusted hops after confirming the last proxy overwrites `X-Forwarded-For`; a multi-process or public Express deployment needs a shared rate-limit store.
-
-This is a per-IP control, not identity or a global spending cap. Vercel Firewall counters are also regional, so a distributed client or multi-region traffic can exceed the nominal project-wide total. Authentication, a human challenge, a global quota, and usage-based session accounting are separate hardening layers if the demo becomes a broader public service.
-
-After issuance, `uses: 1` still permits only one new Live session. That session must start within 60 seconds by default, and the token expires after 30 minutes by default; both values remain server-adjustable. The browser does not automatically reconnect or resume a closed connection. It also ends an open session after five minutes without Gemini-detected user speech, warning 15 seconds beforehand; both idle intervals are configurable through the non-secret Vite settings documented in the frontend README. The token locks the dedicated Live Translate model, audio output, transcription, and target-language translation configuration, and does not enable tools.
-
-## Local setup
-
-Prerequisites: Node.js 24.x for the frontend deployment package, Node.js 20.19
-or newer for the local backend, npm, and a Gemini API key for authenticated
-backend integration tests and live requests.
+**Terminal 1 — backend**
 
 ```bash
 cd backend
 npm ci
-cp .env.example .env
-# Edit .env and set GEMINI_API_KEY from Google AI Studio.
-# Never commit .env or place the key in a VITE_* variable.
+cp .env.example .env    # then set GEMINI_API_KEY
 npm run dev
 ```
 
-Backend commands: `npm run check`, `npm run build`, `npm test`, and `npm start`.
-
-`npm test` verifies the local HTTP architecture. With `GEMINI_API_KEY`, it also creates a real Live token. Set `RUN_GEMINI_SUMMARY_TESTS=true` only when you intentionally want the quota-dependent structured-summary integration check.
-
-In a second terminal:
+**Terminal 2 — frontend**
 
 ```bash
 cd frontend
@@ -105,38 +87,87 @@ npm ci
 npm run dev
 ```
 
-Validate the frontend with `npm run lint`, `npm test`, and `npm run build` from
-`frontend/`.
+Open the printed URL. Never put the key in a `VITE_*` variable — it would be compiled into the browser bundle.
 
-## Structured summary contract
+## How it works
 
-The transcript-analysis endpoint returns a validated object containing `summary`, `appointments`, `deadlines`, `instructions`, `locations`, `documents`, `decisions`, `clarifications`, and `nextSteps`. Missing information produces an empty array, not a fabricated value.
+```text
+Browser (React + Vite)
+  ├─ local /api/* → Vite proxy → backend/ (Express)
+  │    ├─ GET  /api/live-token
+  │    └─ POST /api/summarize
+  └─ Vercel GET /api/live-token → frontend/api/live-token.ts
+```
+
+The browser never sees the long-lived Gemini key. It asks the server for a short-lived Live API token that is locked to one session, one model, and the audio-translation configuration, and expires quickly. Audio streams directly from the browser to Gemini over that constrained token; transcript summaries are schema-validated server-side.
+
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) has the full request, session, and playback diagrams.
+
+## Worth a look
+
+If you are reading the source, these are the parts with real problems in them:
+
+- **[`lib/translation/conversation.ts`](frontend/src/lib/translation/conversation.ts)** — turn ownership between two concurrent Live routes. Gemini marks speech `finished` up to a second before a person has actually stopped talking, so a naive implementation splits one sentence into several turns. The coordinator resolves that with a join window and an idle-release timeout.
+- **[`lib/translation/audio/echoGate.ts`](frontend/src/lib/translation/audio/echoGate.ts)** — deciding whether the microphone is hearing a person or the app's own speakers, using a relative rather than fixed threshold. The file is candid about the case it cannot solve. It is currently disabled; see below.
+- **[`lib/translation/config.ts`](frontend/src/lib/translation/config.ts)** — nearly every constant is justified against behaviour observed in real captured sessions rather than guessed.
+- **[`traceRegression.test.ts`](frontend/src/lib/translation/traceRegression.test.ts) / [`traceReplay.test.ts`](frontend/src/lib/translation/traceReplay.test.ts)** — recorded real sessions replayed against the coordinator, so fixed bugs stay fixed. The fixtures store event metadata only, never conversation text.
+- **[`eval/`](eval)** — a reproducible scored benchmark for summary extraction, so that feature can be judged on numbers instead of vibes.
+- **[`frontend/api/live-token.ts`](frontend/api/live-token.ts)** and **[`backend/src/server.ts`](backend/src/server.ts)** — the same token contract implemented twice, for Vercel and for local Express, both fail-closed.
+
+## Known limitations
+
+Honest about what does not work well yet:
+
+- **You cannot interrupt the translation.** Barge-in is fully implemented and unit-tested, but shipped disabled (`BARGE_IN_ENABLED = false`). In real recorded sessions the echo gate kept reading continued speech and speaker residue as an interruption, which committed half-finished turns and fed the remainder into the next one. A reliable interpreter that waits its turn was judged better than an interruptible one that garbles sentences. Doing it properly needs an acoustic echo-cancellation reference signal, not the loudness heuristic used now. The relevant tests are skipped in step with the flag, and are re-enabled by turning it back on.
+- **No summary screen.** The extraction API and its evaluation harness are built and tested; nothing in the UI calls them yet.
+- **Nothing is saved.** Closing the tab discards the conversation. There is no history, export, or sharing.
+- **Auto-detect can mislabel a turn** when a speaker switches language mid-sentence or two people talk over each other ([#29](https://github.com/smahmood-data/Lingua/issues/29)).
+- **The translated voice can change between turns** ([#34](https://github.com/smahmood-data/Lingua/issues/34)).
+- **The rate limit is per-IP, not per-identity**, and Vercel Firewall counters are regional. It protects a demo; it is not a spending cap. See [`docs/SECURITY.md`](docs/SECURITY.md).
+
+## Development
+
+```bash
+# frontend
+cd frontend && npm run lint && npm test && npm run build
+
+# backend
+cd backend && npm run check && npm test && npm run build
+```
+
+Backend `npm test` runs the local HTTP contract tests. With a `GEMINI_API_KEY` set it also mints a real Live token. Set `RUN_GEMINI_SUMMARY_TESTS=true` only when you want the quota-consuming summary integration check.
 
 ## Documentation
 
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) - system architecture, user journey, runtime sequences, summary flow, and issue dependencies
-- [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) - canonical Vercel configuration, owner-only setup, smoke checks, and failure diagnosis
-- [`docs/REPOSITORY_STRUCTURE.md`](./docs/REPOSITORY_STRUCTURE.md) - package ownership, local/Vercel request paths, environment boundaries, and the repository-layout audit
-- [`docs/ROADMAP.md`](./docs/ROADMAP.md) - ordered prototype backlog, dependencies, demo script, and submission checklist
-- [`docs/REPOSITORY_SETTINGS.md`](./docs/REPOSITORY_SETTINGS.md) - owner-only GitHub protection and merge settings
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md) - branches, commits, pull requests, and team workflow
-- [`AI_USAGE.md`](./AI_USAGE.md) - transparent record of AI-assisted work
+| Document | Contents |
+| --- | --- |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System architecture, user journey, runtime sequences, summary flow |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Key boundary, token constraints, abuse protection, and its limits |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Vercel configuration, owner setup, smoke checks, failure map |
+| [`docs/REPOSITORY_STRUCTURE.md`](docs/REPOSITORY_STRUCTURE.md) | Package ownership and local/Vercel request paths |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | What is built, what is next, and what is deliberately deferred |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branches, commits, pull requests, team workflow |
+| [`AI_USAGE.md`](AI_USAGE.md) | Disclosure of AI-assisted work |
+
+## Team
+
+Built at CTP Hacks by four people:
+
+| | |
+| --- | --- |
+| [**Adil Ahmed**](https://github.com/adillpickles) | Live audio pipeline and playback, translation session and turn coordination, interpreter UI, abuse protection, deployment ([#15](https://github.com/smahmood-data/Lingua/pull/15), [#16](https://github.com/smahmood-data/Lingua/pull/16), [#20](https://github.com/smahmood-data/Lingua/pull/20), [#22](https://github.com/smahmood-data/Lingua/pull/22), [#38](https://github.com/smahmood-data/Lingua/pull/38), [#40](https://github.com/smahmood-data/Lingua/pull/40)) |
+| [**Jamis Bade**](https://github.com/Jawmis) | Secure Gemini backend, ephemeral token service, structured summary API, summary evaluation benchmark ([#13](https://github.com/smahmood-data/Lingua/pull/13), [#26](https://github.com/smahmood-data/Lingua/pull/26)) |
+| [**Emma Katz**](https://github.com/emmakatz06) | Interpreter screen, bilingual subtitles, status states, keyboard navigation ([#14](https://github.com/smahmood-data/Lingua/pull/14)) |
+| [**Syed Faisal Mahmood**](https://github.com/smahmood-data) | Repository owner; project scaffold, initial deployment, review |
 
 ## Product principles
 
 - Understanding is the goal; translation is the mechanism.
-- Do not invent facts that were not present in the conversation.
-- Make uncertainty visible and suggest a clarification instead of guessing.
-- Stream audio for the demo and avoid retaining raw audio.
-- Keep the interface calm, legible, and usable under stress.
-
-## Official Gemini references
-
-- [Live translation](https://ai.google.dev/gemini-api/docs/live-api/live-translate)
-- [Live API overview](https://ai.google.dev/gemini-api/docs/live-api)
-- [Ephemeral tokens](https://ai.google.dev/gemini-api/docs/live-api/ephemeral-tokens)
-- [Structured outputs](https://ai.google.dev/gemini-api/docs/structured-output)
+- Never invent a fact that was not in the conversation.
+- Make uncertainty visible and ask for clarification instead of guessing.
+- Stream audio; do not retain it.
+- Keep the interface calm and legible under stress.
 
 ## License
 
-See [`LICENSE`](./LICENSE).
+[MIT](LICENSE).
