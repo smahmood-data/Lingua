@@ -96,6 +96,8 @@ export function TopBar({
   rightCode,
   theme,
   onToggleTheme,
+  onHistory,
+  onSummary,
 }: {
   /** Whether a conversation is on screen (live, ended, or failed). */
   session: boolean
@@ -104,6 +106,8 @@ export function TopBar({
   rightCode: SupportedLanguageCode
   theme: Theme
   onToggleTheme: () => void
+  onHistory?: () => void
+  onSummary?: () => void
 }) {
   const left = leftCode ? languageMetaFromCode(leftCode) : null
   const right = languageMetaFromCode(rightCode)
@@ -123,6 +127,11 @@ export function TopBar({
           <PairSide code={rightCode} fallback={right.label} side="end" />
         </p>
       ) : null}
+
+      <div className="masthead-actions">
+        {session && onSummary ? <button type="button" onClick={onSummary}>Summary</button> : null}
+        {onHistory ? <button type="button" onClick={onHistory}>History</button> : null}
+      </div>
 
       <button
         type="button"

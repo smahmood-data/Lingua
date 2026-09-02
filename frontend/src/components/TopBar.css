@@ -129,6 +129,26 @@
     color var(--dur-fast) var(--ease-out);
 }
 
+.masthead-actions {
+  position: absolute;
+  top: clamp(16px, 2.8vh, 26px);
+  inset-inline-start: clamp(14px, 2.5vw, 28px);
+  display: flex;
+  gap: 6px;
+}
+
+.masthead-actions button {
+  padding: 7px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.masthead-actions button:hover { border-color: var(--accent); color: var(--accent-ink); }
+
 .theme-toggle:hover {
   border-color: var(--line-strong);
   background: var(--paper-raised);

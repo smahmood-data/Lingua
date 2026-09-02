@@ -570,7 +570,9 @@ function buildSummaryPrompt(transcript: TranscriptTurn[], preferredLanguage: str
     .join('\n\n');
 
   return [
-    `Return a concise structured conversation summary in ${preferredLanguage}.`,
+    `Return a concise structured two-person professional meeting summary in ${preferredLanguage}.`,
+    'Treat the speakers as Participant A and Participant B. Attribute specific recommendations to the participant who made them.',
+    'For each next step, include the responsible participant and deadline in the string as: "Owner: Participant A or Participant B; Deadline: <date or Immediate>; Action: <specific task>". Never invent an owner or deadline; use Immediate only when the transcript makes the timing immediate.',
     'Only use facts stated in the transcript. Use empty arrays when a category is not mentioned.',
     'Put unresolved questions or uncertainty in clarifications.',
     '',

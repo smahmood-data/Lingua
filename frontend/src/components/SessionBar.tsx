@@ -61,6 +61,7 @@ type Props = {
   busy?: boolean
   onNewSession: () => void
   onClear: () => void
+  onExport?: () => void
   newSessionRef?: Ref<HTMLButtonElement>
   clearRef?: Ref<HTMLButtonElement>
 }
@@ -106,6 +107,7 @@ export function SessionBar({
   busy,
   onNewSession,
   onClear,
+  onExport,
   newSessionRef,
   clearRef,
 }: Props) {
@@ -144,15 +146,10 @@ export function SessionBar({
 
         <div className="session-flank flank-right">
           {finished ? (
-            <button
-              type="button"
-              className="session-action action-clear"
-              ref={clearRef}
-              onClick={onClear}
-            >
-              <TrashGlyph />
-              Clear
-            </button>
+            <span className="session-actions-right">
+              {onExport ? <button type="button" className="session-action action-export" onClick={onExport}>Export</button> : null}
+              <button type="button" className="session-action action-clear" ref={clearRef} onClick={onClear}><TrashGlyph />Clear</button>
+            </span>
           ) : (
             <WaveBars side="right" />
           )}
