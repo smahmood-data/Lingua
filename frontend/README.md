@@ -118,17 +118,29 @@ is never read by frontend code. `vite.config.ts` proxies `/api` to
 the same route as a serverless function when the Vercel project root is this
 `frontend` directory. Set `GEMINI_API_KEY` in Vercel's server-side environment settings;
 no frontend environment variable is needed. The deployed function also requires
-the `lingua-live-token` Vercel Firewall rule documented in the root
-[live-token abuse-protection section](../README.md#live-token-abuse-protection);
-without that rule, token creation fails closed with HTTP 503.
+the `lingua-live-token` Vercel Firewall rule documented in
+[`docs/SECURITY.md`](../docs/SECURITY.md); without that rule, token creation
+fails closed with HTTP 503.
 
 `src/lib/translation/tokenProvider.ts` is the only frontend file that knows the
 wire shape. It consumes the merged issue #1 contract:
 
 ```
-GET /api/live-token?target=en
--> { token, expiresAt, newSessionExpiresAt, model, targetLanguage }
+GET /api/live-token?source=auto&target=en
+-> {
+     token,                 // must start with "auth_tokens/"
+     expiresAt,             // ISO 8601; when the token itself dies
+     newSessionExpiresAt,   // ISO 8601; deadline to *open* the session
+     model,
+     sourceLanguage,        // echoed back, "auto" or a BCP-47 code
+     targetLanguage,
+     systemInstruction,     // the interpreter prompt the token is bound to
+   }
 ```
+
+All seven fields are required: the provider rejects a response missing any of
+them rather than starting a session on a partial contract. Responses are sent
+with `Cache-Control: no-store`.
 
 The Express backend still accepts legacy direction parameters for compatibility.
 The `token` value must
