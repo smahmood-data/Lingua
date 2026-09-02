@@ -30,7 +30,21 @@ vi.mock('./audio/microphoneCapture', () => ({
 
 import { TranslationSession } from './translationSession'
 import type { SourceLanguageCode, SupportedLanguageCode } from './types'
+import { BARGE_IN_ENABLED } from './config'
 import stuckPlayingTrace from './fixtures/stuck-playing.trace.json'
+
+/**
+ * The barge-in behaviours below are specified, implemented, and tested, but
+ * `BARGE_IN_ENABLED` currently ships false: in real captured sessions the echo
+ * gate read continuing speech and speaker residue as an interruption, which
+ * committed half-finished turns. These tests are gated on the same flag rather
+ * than skipped outright, so they are a switched-off feature's specification and
+ * not abandoned work — flipping the flag runs them again.
+ *
+ * See `config.ts` for the reasoning and `audio/echoGate.ts` for the limit that
+ * has to be solved before the flag can go back on.
+ */
+const itWhenBargeIn = it.skipIf(!BARGE_IN_ENABLED)
 
 /**
  * The product, driven the way two people drive it.
@@ -548,7 +562,7 @@ describe('Lingua interpreter', () => {
     await talk.session.stop()
   })
 
-  it.skip('Product 2 — barge-in cancels the translation and opens the next turn', async () => {
+  itWhenBargeIn('Product 2 — barge-in cancels the translation and opens the next turn', async () => {
     const talk = await interpreter('en', 'bn')
     const bengali = talk.route('bn')
     const english = talk.route('en')
@@ -607,7 +621,7 @@ describe('Lingua interpreter', () => {
     await talk.session.stop()
   })
 
-  it.skip('Product 3 — barge-in works the same way in the other direction', async () => {
+  itWhenBargeIn('Product 3 — barge-in works the same way in the other direction', async () => {
     const talk = await interpreter('en', 'bn')
     const bengali = talk.route('bn')
     const english = talk.route('en')
@@ -666,7 +680,7 @@ describe('Lingua interpreter', () => {
     await talk.session.stop()
   })
 
-  it.skip('Product 4 — the translated text survives an interrupted playback', async () => {
+  itWhenBargeIn('Product 4 — the translated text survives an interrupted playback', async () => {
     const talk = await interpreter('en', 'bn')
     const bengali = talk.route('bn')
     const english = talk.route('en')
@@ -870,7 +884,7 @@ describe('Lingua interpreter', () => {
     }
   })
 
-  it.skip('Product 9 — everything the cancelled turn still sends is ignored', async () => {
+  itWhenBargeIn('Product 9 — everything the cancelled turn still sends is ignored', async () => {
     const talk = await interpreter('en', 'bn')
     const bengali = talk.route('bn')
     const english = talk.route('en')
@@ -1038,7 +1052,7 @@ describe('Lingua interpreter', () => {
     await talk.session.stop()
   })
 
-  it.skip('Product 14 — repeated interruptions do not move ownership', async () => {
+  itWhenBargeIn('Product 14 — repeated interruptions do not move ownership', async () => {
     const talk = await interpreter('en', 'bn')
 
     const interrupt = async (spoken: string, into: string, text: string) => {
@@ -1206,11 +1220,12 @@ describe('Lingua interpreter', () => {
     await talk.room(500, ECHO)
     expect(talk.state()).toBe('playing')
 
-    // Somebody talking over it goes straight back to listening. It does not
-    // Barge-in is disabled for the normal-conversation pass, so captured room
-    // audio cannot cut off a translation that is still physically playing.
+    // This is the one assertion the barge-in flag genuinely inverts. With it
+    // off — the shipped configuration — captured room audio cannot cut off a
+    // translation that is still physically playing. With it on, somebody
+    // talking over the translation takes the room back immediately.
     await talk.room(300, VOICE)
-    expect(talk.state()).toBe('playing')
+    expect(talk.state()).toBe(BARGE_IN_ENABLED ? 'listening' : 'playing')
     await talk.session.stop()
     expect(talk.state()).toBe('stopped')
   })
