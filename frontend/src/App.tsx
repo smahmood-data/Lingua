@@ -152,10 +152,15 @@ export default function App() {
 
   useEffect(() => {
     if (mode !== 'ended' || !turns.length || savedSessionId.current) return
+    const detectedCounterpart = turns.find(
+      (turn) => turn.sourceLanguage && !languageCodesMatch(turn.sourceLanguage, targetLanguage),
+    )?.sourceLanguage
     const session: SavedSession = {
       id: `${turns[0]?.createdAt ?? Date.now()}-${turns.length}`,
       createdAt: turns[0]?.createdAt ?? Date.now(),
-      endedAt: Date.now(), sourceLanguage, targetLanguage, counterpartLanguage, turns,
+      endedAt: Date.now(), sourceLanguage, targetLanguage,
+      counterpartLanguage: (detectedCounterpart as SupportedLanguageCode | undefined) ?? counterpartLanguage,
+      turns,
     }
     savedSessionId.current = session.id
     setSessions(saveSession(session))
@@ -296,16 +301,31 @@ export default function App() {
   )
 
   const handleMicClick = useCallback(() => {
+    if (!isActive && mode === 'ended') {
+      savedSessionId.current = null
+      clearTranscript()
+    }
     void runTransition(isActive ? 'stop' : 'start', () =>
       isActive ? stop() : start(sourceLanguage, targetLanguage),
     )
-  }, [isActive, runTransition, sourceLanguage, start, stop, targetLanguage])
+  }, [clearTranscript, isActive, mode, runTransition, sourceLanguage, start, stop, targetLanguage])
 
   const handleNewSession = useCallback(() => {
     savedSessionId.current = null
+    clearTranscript()
     setPanel(null)
     void runTransition('start', () => start(sourceLanguage, targetLanguage))
-  }, [runTransition, sourceLanguage, start, targetLanguage])
+  }, [clearTranscript, runTransition, sourceLanguage, start, targetLanguage])
+
+  const handleClear = useCallback(() => {
+    savedSessionId.current = null
+    clearTranscript()
+  }, [clearTranscript])
+
+  const handleSaveSummary = useCallback((session: SavedSession) => {
+    setSessions(saveSession(session))
+    setSelectedSession(session)
+  }, [])
 
   const currentSavedSession = sessions.find((session) => session.id === savedSessionId.current) ?? (mode === 'ended' && turns.length ? {
     id: savedSessionId.current ?? 'current', createdAt: turns[0]?.createdAt ?? Date.now(), endedAt: Date.now(), sourceLanguage, targetLanguage, counterpartLanguage, turns,
@@ -373,7 +393,7 @@ export default function App() {
           dockSlotRef={dockSlotRef}
           busy={transition !== null}
           onNewSession={handleNewSession}
-          onClear={clearTranscript}
+          onClear={handleClear}
           onExport={exportCurrent}
           newSessionRef={newSessionRef}
           clearRef={clearRef}
@@ -389,7 +409,7 @@ export default function App() {
         onClick={handleMicClick}
       />
       {panel === 'history' ? <HistoryPanel sessions={sessions} onClose={() => setPanel(null)} onClear={() => { clearSavedSessions(); setSessions([]) }} onDelete={(session) => { setSessions(deleteSavedSession(session.id)); if (selectedSession?.id === session.id) setSelectedSession(null) }} onSelect={(session) => { setSelectedSession(session); setPanel('transcript') }} /> : null}
-      {panel === 'transcript' && selectedSession ? <TranscriptPanel session={selectedSession} onClose={() => setPanel(null)} /> : null}
+      {panel === 'transcript' && selectedSession ? <TranscriptPanel key={selectedSession.id} session={selectedSession} onClose={() => setPanel(null)} onSaveSession={handleSaveSummary} /> : null}
     </div>
   )
 }

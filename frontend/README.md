@@ -100,7 +100,7 @@ const {
   microphone or a second Live session, and a session can always be restarted
   after stopping or failing without reloading the page.
 
-Nothing is persisted: the transcript exists only for the current page load.
+Completed transcripts and generated summaries are stored only in this browser's localStorage. They are not synced to an account or server; anyone with access to this browser profile may be able to view them. Use the Clear history control to remove saved sessions from localStorage.
 
 An active session also stops after five minutes without Gemini-detected user
 speech, with a warning 15 seconds before expiry. Speech start or end resets the

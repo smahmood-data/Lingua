@@ -1,5 +1,17 @@
 import type { ConversationTurn } from './translation'
-import type { SourceLanguageCode, SupportedLanguageCode } from '../types'
+import { languageCodesMatch, type SourceLanguageCode, type SupportedLanguageCode } from '../types'
+
+export interface ConversationSummary {
+  summary: string
+  appointments: Array<{ date: string | null; time: string | null; location: string | null; notes: string }>
+  deadlines: string[]
+  instructions: string[]
+  locations: string[]
+  documents: string[]
+  decisions: string[]
+  clarifications: string[]
+  nextSteps: string[]
+}
 
 export interface SavedSession {
   id: string
@@ -9,6 +21,7 @@ export interface SavedSession {
   targetLanguage: SupportedLanguageCode
   counterpartLanguage: SupportedLanguageCode | null
   turns: ConversationTurn[]
+  summaries?: Partial<Record<SupportedLanguageCode, ConversationSummary>>
 }
 
 const STORAGE_KEY = 'lingua-session-history-v1'
@@ -45,10 +58,38 @@ export function deleteSavedSession(id: string): SavedSession[] {
   return sessions
 }
 
+export function saveSummary(
+  sessionId: string,
+  language: SupportedLanguageCode,
+  summary: ConversationSummary,
+): SavedSession[] {
+  const sessions = loadSavedSessions().map((session) =>
+    session.id === sessionId
+      ? { ...session, summaries: { ...session.summaries, [language]: summary } }
+      : session,
+  )
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions))
+  } catch {
+    // A summary cache is a convenience; storage failures must not block review.
+  }
+  return sessions
+}
+
+export function speakerLabel(
+  turn: Pick<ConversationTurn, 'sourceLanguage'>,
+  selectedLanguage: SupportedLanguageCode,
+): string {
+  if (!turn.sourceLanguage) return 'Speaker unknown'
+  return languageCodesMatch(turn.sourceLanguage, selectedLanguage)
+    ? 'Selected-language speaker'
+    : 'Detected-language speaker'
+}
+
 export function formatTranscript(session: SavedSession, format: 'markdown' | 'text' = 'markdown'): string {
   const date = new Date(session.endedAt).toLocaleString()
-  const lines = session.turns.flatMap((turn, index) => {
-    const speaker = index % 2 === 0 ? 'Participant A' : 'Participant B'
+  const lines = session.turns.flatMap((turn) => {
+    const speaker = speakerLabel(turn, session.targetLanguage)
     const result = [`${speaker}: ${turn.sourceText || '[No original transcript]'}`]
     if (turn.translatedText) result.push(`Translation: ${turn.translatedText}`)
     return result

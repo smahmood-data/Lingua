@@ -1,3 +1,6 @@
+.summary-panel { position: absolute; z-index: 40; inset-block: 0; inset-inline-end: 0; width: min(520px, 100%); padding: 28px 24px; overflow-y: auto; background: var(--paper-raised); border-inline-start: 1px solid var(--line); box-shadow: var(--lift-menu); animation: panel-in 220ms var(--ease-out); }
+.summary-language { margin-bottom: 20px; }
+.summary-language label { display: grid; gap: 7px; color: var(--ink-mute); font-size: .78rem; font-weight: 700; }
 .summary-content h3 { font-family: var(--font-brand); font-size: 1.2rem; font-weight: 650; margin-bottom: 18px; }
 .summary-content section { padding: 17px 0; border-top: 1px solid var(--line); }
 .summary-content h4 { margin: 0 0 9px; color: var(--ink-soft); font-size: .78rem; letter-spacing: .02em; }
