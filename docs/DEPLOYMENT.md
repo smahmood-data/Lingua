@@ -2,7 +2,7 @@
 
 The one canonical production URL is
 [`https://try-lingua.vercel.app`](https://try-lingua.vercel.app). Repair and retain
-the existing `try-lingua` Vercel project (previously `bridgev1`); do not create a second deployment to
+the existing Vercel project; do not create a second deployment to
 work around configuration drift.
 
 ## Current verified state
