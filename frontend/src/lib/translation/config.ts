@@ -134,6 +134,12 @@ export const MUTE_WHILE_TRANSLATING = false
  * traces and committed unfinished turns. While translated speech is audible we
  * now send silence to Gemini; interruption can be reintroduced separately once
  * ordinary alternating conversation is stable.
+ *
+ * The behaviour is still fully specified: the barge-in cases in
+ * `interpreter.test.ts` are gated on this flag rather than skipped, and they
+ * pass when it is true. What is unsolved is acoustic, not logical — separating
+ * a voice from our own speakers needs an echo-cancellation reference signal
+ * rather than the loudness heuristic in `audio/echoGate.ts`.
  */
 export const BARGE_IN_ENABLED = false
 
