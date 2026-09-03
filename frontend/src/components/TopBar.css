@@ -13,6 +13,7 @@
 .wordmark {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 1px;
   color: var(--ink);
   font-family: var(--font-brand);
@@ -24,7 +25,19 @@
      that tail the next line sits inside it — which is exactly what the pair
      row was doing. */
   padding-bottom: 0.28em;
+  min-block-size: 2.1em;
+  min-inline-size: 5.25em;
   user-select: none;
+}
+
+.wordmark-animated {
+  position: relative;
+}
+
+.wordmark-copy {
+  display: inline-block;
+  translate: 0 0.85em;
+  white-space: nowrap;
 }
 
 .wordmark-lam {
@@ -127,10 +140,25 @@
     animation: pair-in var(--dur-med) var(--ease-out) backwards;
   }
 
+  .wordmark-final-reveal {
+    animation: wordmark-final-reveal 220ms var(--ease-out) both;
+  }
+
   @keyframes pair-in {
     from {
       opacity: 0;
       translate: 0 -3px;
+    }
+    to {
+      opacity: 1;
+      translate: 0 0;
+    }
+  }
+
+  @keyframes wordmark-final-reveal {
+    from {
+      opacity: 0;
+      translate: 0 2px;
     }
     to {
       opacity: 1;

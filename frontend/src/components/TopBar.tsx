@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import { languageMetaFromCode, type SupportedLanguageCode } from '../types'
 import { languageColor } from '../languageDisplay'
 import type { Theme } from '../hooks/useTheme'
+import { Wordmark } from './Wordmark'
 import './TopBar.css'
 
 function PairGlyph() {
@@ -110,16 +111,7 @@ export function TopBar({
 
   return (
     <header className="masthead">
-      <h1 className="wordmark">
-        <span className="sr-only">Lingua</span>
-        {/* lām — read as the L, set in its own script. */}
-        <span className="wordmark-lam" aria-hidden="true" lang="ar">
-          ل
-        </span>
-        <span className="wordmark-stem" aria-hidden="true">
-          ingua
-        </span>
-      </h1>
+      <Wordmark idle={!session} />
 
       {session ? (
         <p
