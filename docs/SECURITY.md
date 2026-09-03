@@ -18,7 +18,7 @@ bundle, so that name is never used for a credential.
 The deployed bundle can be checked directly:
 
 ```bash
-curl -s https://bridgev1.vercel.app | grep -o '/assets/[^"]*\.js' | head -1
+curl -s https://try-lingua.vercel.app | grep -o '/assets/[^"]*\.js' | head -1
 # then fetch that file and search it for a key prefix
 ```
 

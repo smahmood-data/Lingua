@@ -52,7 +52,7 @@ secret, firewall, domain, and GitHub homepage steps. After a new deployment is
 ready, run the token-redacting check from this directory:
 
 ```bash
-npm run smoke:deployment -- https://bridgev1.vercel.app
+npm run smoke:deployment -- https://try-lingua.vercel.app
 ```
 
 The check creates one real ephemeral token, validates it only in memory, and
