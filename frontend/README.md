@@ -14,7 +14,7 @@ The code has two runtime boundaries inside this package:
 
 ## Requirements
 
-- Node.js 20.19 or newer
+- Node.js 24.x (the version pinned for Vercel and frontend CI)
 - npm
 - Git
 
@@ -39,6 +39,24 @@ npm run build
 ```
 
 Do not put Gemini credentials in frontend code or in a `VITE_*` variable. The backend dependencies are installed with `npm ci` from `../backend`, and its key remains server-side.
+
+## Deployment
+
+`vercel.json` is the repository-owned Vercel contract: Vite, `npm ci`,
+`npm run build`, and the `dist` output directory. The existing Vercel project's
+Root Directory must be `frontend`; a config file cannot repair a dashboard root
+that still points to the removed `Bridge` directory.
+
+Follow [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) for the owner-only project,
+secret, firewall, domain, and GitHub homepage steps. After a new deployment is
+ready, run the token-redacting check from this directory:
+
+```bash
+npm run smoke:deployment -- https://bridgev1.vercel.app
+```
+
+The check creates one real ephemeral token, validates it only in memory, and
+never prints the token value.
 
 ## Live translation
 

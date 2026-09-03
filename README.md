@@ -40,6 +40,12 @@ The developer harness is documented in the
 boundaries are recorded in
 [`docs/REPOSITORY_STRUCTURE.md`](./docs/REPOSITORY_STRUCTURE.md).
 
+The canonical production alias is
+[`https://bridgev1.vercel.app`](https://bridgev1.vercel.app). Repository-owned
+deployment settings live in `frontend/vercel.json`; the required Vercel and
+GitHub owner steps and the redacting smoke check are in
+[`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
+
 ## Architecture & Security
 
 ```text
@@ -74,7 +80,9 @@ After issuance, `uses: 1` still permits only one new Live session. That session 
 
 ## Local setup
 
-Prerequisites: Node.js 20.19 or newer, npm, and a Gemini API key for authenticated backend integration tests and live requests.
+Prerequisites: Node.js 24.x for the frontend deployment package, Node.js 20.19
+or newer for the local backend, npm, and a Gemini API key for authenticated
+backend integration tests and live requests.
 
 ```bash
 cd backend
@@ -107,6 +115,7 @@ The transcript-analysis endpoint returns a validated object containing `summary`
 ## Documentation
 
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) - system architecture, user journey, runtime sequences, summary flow, and issue dependencies
+- [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) - canonical Vercel configuration, owner-only setup, smoke checks, and failure diagnosis
 - [`docs/REPOSITORY_STRUCTURE.md`](./docs/REPOSITORY_STRUCTURE.md) - package ownership, local/Vercel request paths, environment boundaries, and the repository-layout audit
 - [`docs/ROADMAP.md`](./docs/ROADMAP.md) - ordered prototype backlog, dependencies, demo script, and submission checklist
 - [`docs/REPOSITORY_SETTINGS.md`](./docs/REPOSITORY_SETTINGS.md) - owner-only GitHub protection and merge settings

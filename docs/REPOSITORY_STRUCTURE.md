@@ -98,7 +98,8 @@ npm test
 npm run build
 ```
 
-When this structure becomes the deployment source, the Vercel project Root
-Directory must be `frontend`. Issue #31 owns the repository-side deployment
-configuration, canonical URL, server-side secret checklist, and deployed smoke
-test; this issue does not change an account setting or create another project.
+The Vercel project Root Directory must be `frontend`. The repository-side build
+contract is in `frontend/vercel.json`; the canonical URL, server-side secret and
+firewall checklist, account-setting handoff, and deployed smoke test are in
+[`DEPLOYMENT.md`](./DEPLOYMENT.md). No source-controlled file can change a
+project's dashboard Root Directory, secret values, domains, or GitHub homepage.
