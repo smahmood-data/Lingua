@@ -4,6 +4,8 @@
 
 **Translation tells you what someone said. Lingua helps you understand what happens next.**
 
+CTP Hacks 2026 — Winner, Best SWE Practices
+
 [**Try the live demo →**](https://bridgev1.vercel.app)
 
 [![CI](https://github.com/smahmood-data/Lingua/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/smahmood-data/Lingua/actions/workflows/ci.yml)
@@ -36,9 +38,9 @@ This started as a hackathon project and is still an MVP. What is and is not buil
 | Secure ephemeral-token exchange; key never in the browser | ✅ Working |
 | Per-IP abuse protection and idle-session cleanup | ✅ Working |
 | Deployed and reachable | ✅ [bridgev1.vercel.app](https://bridgev1.vercel.app) |
-| Structured end-of-conversation summary | ⚠️ **Backend only** — the API and its evaluation harness exist and are tested; **there is no summary screen in the app yet** ([#5](https://github.com/smahmood-data/Lingua/issues/5)) |
+| Structured end-of-conversation summary | 🚧 **In progress** — the summary backend/API and its evaluation harness already exist and are tested; the summary UI is still not shipped on `main` and is being implemented in [PR #47](https://github.com/smahmood-data/Lingua/pull/47) ([#5](https://github.com/smahmood-data/Lingua/issues/5)) |
 | Barge-in (talking over the translation) | ⚠️ **Implemented but disabled** — see [Known limitations](#known-limitations) ([#28](https://github.com/smahmood-data/Lingua/issues/28)) |
-| Saved history, search, transcript export | ❌ Not built ([#36](https://github.com/smahmood-data/Lingua/issues/36), [#37](https://github.com/smahmood-data/Lingua/issues/37)) |
+| Saved history, search, transcript export | 🚧 **In progress** — still not shipped on `main`; being implemented in [PR #47](https://github.com/smahmood-data/Lingua/pull/47) ([#36](https://github.com/smahmood-data/Lingua/issues/36), [#37](https://github.com/smahmood-data/Lingua/issues/37)) |
 | Accounts, storage, call integrations | ❌ Deliberately out of scope |
 
 ## Screens
