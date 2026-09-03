@@ -6,7 +6,7 @@
 
 CTP Hacks 2026 — Winner, Best SWE Practices
 
-[**Try the live demo →**](https://bridgev1.vercel.app)
+[**Try the live demo →**](https://try-lingua.vercel.app)
 
 [![CI](https://github.com/smahmood-data/Lingua/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/smahmood-data/Lingua/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -37,7 +37,7 @@ This started as a hackathon project and is still an MVP. What is and is not buil
 | Live bilingual subtitles with per-turn language labels | ✅ Working |
 | Secure ephemeral-token exchange; key never in the browser | ✅ Working |
 | Per-IP abuse protection and idle-session cleanup | ✅ Working |
-| Deployed and reachable | ✅ [bridgev1.vercel.app](https://bridgev1.vercel.app) |
+| Deployed and reachable | ✅ [try-lingua.vercel.app](https://try-lingua.vercel.app) |
 | Structured end-of-conversation summary | 🚧 **In progress** — the summary backend/API and its evaluation harness already exist and are tested; the summary UI is still not shipped on `main` and is being implemented in [PR #47](https://github.com/smahmood-data/Lingua/pull/47) ([#5](https://github.com/smahmood-data/Lingua/issues/5)) |
 | Barge-in (talking over the translation) | ⚠️ **Implemented but disabled** — see [Known limitations](#known-limitations) ([#28](https://github.com/smahmood-data/Lingua/issues/28)) |
 | Saved history, search, transcript export | 🚧 **In progress** — still not shipped on `main`; being implemented in [PR #47](https://github.com/smahmood-data/Lingua/pull/47) ([#36](https://github.com/smahmood-data/Lingua/issues/36), [#37](https://github.com/smahmood-data/Lingua/issues/37)) |
@@ -63,7 +63,7 @@ This started as a hackathon project and is still an MVP. What is and is not buil
 
 ## Try it
 
-The fastest path is the [live demo](https://bridgev1.vercel.app) — allow microphone access and speak.
+The fastest path is the [live demo](https://try-lingua.vercel.app) — allow microphone access and speak.
 
 To run it locally you need Node.js 20.19+ (24.x for the frontend), npm, and a [Gemini API key](https://aistudio.google.com/apikey).
 
@@ -157,10 +157,10 @@ Built at CTP Hacks by four people:
 
 | | |
 | --- | --- |
-| [**Adil Ahmed**](https://github.com/adillpickles) | Live audio pipeline and playback, translation session and turn coordination, interpreter UI, abuse protection, deployment ([#15](https://github.com/smahmood-data/Lingua/pull/15), [#16](https://github.com/smahmood-data/Lingua/pull/16), [#20](https://github.com/smahmood-data/Lingua/pull/20), [#22](https://github.com/smahmood-data/Lingua/pull/22), [#38](https://github.com/smahmood-data/Lingua/pull/38), [#40](https://github.com/smahmood-data/Lingua/pull/40)) |
-| [**Jamis Bade**](https://github.com/Jawmis) | Secure Gemini backend, ephemeral token service, structured summary API, summary evaluation benchmark ([#13](https://github.com/smahmood-data/Lingua/pull/13), [#26](https://github.com/smahmood-data/Lingua/pull/26)) |
-| [**Emma Katz**](https://github.com/emmakatz06) | Interpreter screen, bilingual subtitles, status states, keyboard navigation ([#14](https://github.com/smahmood-data/Lingua/pull/14)) |
-| [**Syed Faisal Mahmood**](https://github.com/smahmood-data) | Repository owner; project scaffold, initial deployment, review |
+| [**Adil Ahmed**](https://github.com/adillpickles) | Live audio pipeline and playback, translation session and turn coordination, interpreter UI, abuse protection, and deployment hardening ([#15](https://github.com/smahmood-data/Lingua/pull/15), [#16](https://github.com/smahmood-data/Lingua/pull/16), [#20](https://github.com/smahmood-data/Lingua/pull/20), [#22](https://github.com/smahmood-data/Lingua/pull/22), [#38](https://github.com/smahmood-data/Lingua/pull/38), [#40](https://github.com/smahmood-data/Lingua/pull/40), [#42](https://github.com/smahmood-data/Lingua/pull/42), [#43](https://github.com/smahmood-data/Lingua/pull/43), [#48](https://github.com/smahmood-data/Lingua/pull/48)) |
+| [**Jamis Bade**](https://github.com/Jawmis) | Secure Gemini backend, ephemeral token service, structured summary API, and the scored summary evaluation benchmark ([#13](https://github.com/smahmood-data/Lingua/pull/13), [#26](https://github.com/smahmood-data/Lingua/pull/26)) |
+| [**Emma Katz**](https://github.com/emmakatz06) | Interpreter screen, bilingual subtitles, status states, and keyboard navigation ([#14](https://github.com/smahmood-data/Lingua/pull/14)) |
+| [**Syed Faisal Mahmood**](https://github.com/smahmood-data) | Repository owner and steward who took Lingua from a hackathon prototype to a live deployed application at [try-lingua.vercel.app](https://try-lingua.vercel.app). He scaffolded the project, keeps the deployment and Vercel project healthy, and has reviewed and merged a broad share of the team's work including [#13](https://github.com/smahmood-data/Lingua/pull/13), [#26](https://github.com/smahmood-data/Lingua/pull/26), [#40](https://github.com/smahmood-data/Lingua/pull/40), [#41](https://github.com/smahmood-data/Lingua/pull/41), [#43](https://github.com/smahmood-data/Lingua/pull/43), and [#48](https://github.com/smahmood-data/Lingua/pull/48). He also built the current transcript history, search, export, and on-demand summary flow in [PR #47](https://github.com/smahmood-data/Lingua/pull/47), continuing early work in [#19](https://github.com/smahmood-data/Lingua/pull/19). |
 
 ## Product principles
 

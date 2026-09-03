@@ -25,7 +25,7 @@ scope until privacy, consent, and access-control decisions exist.
 - A single interpreter canvas: idle, live session, and ended-conversation
   compositions. Light and dark themes follow the system setting.
 - CI, trace-replay regression tests, and a scored summary-extraction benchmark.
-- A deployed demo at [bridgev1.vercel.app](https://bridgev1.vercel.app).
+- A deployed demo at [try-lingua.vercel.app](https://try-lingua.vercel.app).
 
 Completed hackathon issues (#1–#4, plus the live-audio follow-ups through
 [#22](https://github.com/smahmood-data/Lingua/issues/22) and the interpreter

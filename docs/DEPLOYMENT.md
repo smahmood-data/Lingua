@@ -1,8 +1,8 @@
 # Vercel Deployment Runbook
 
 The one canonical production URL is
-[`https://bridgev1.vercel.app`](https://bridgev1.vercel.app). Repair and retain
-the existing `bridgev1` Vercel project; do not create a second deployment to
+[`https://try-lingua.vercel.app`](https://try-lingua.vercel.app). Repair and retain
+the existing `try-lingua` Vercel project (previously `bridgev1`); do not create a second deployment to
 work around configuration drift.
 
 ## Current verified state
@@ -11,7 +11,7 @@ Checked on 2026-09-02 with `npm run smoke:deployment`:
 
 | Check | Observed state |
 | --- | --- |
-| Canonical `bridgev1` homepage | HTTP 200, current Lingua Vite shell |
+| Canonical `try-lingua` homepage | HTTP 200, current Lingua Vite shell |
 | Canonical `GET /api/live-token?target=en` | HTTP 200, constrained `auth_tokens/` token, `Cache-Control: no-store` |
 | Firewall rule | Active — the Function does not fail closed with HTTP 503 |
 | Production deployment source | Current `main`; the served bundle hash matches a local `main` build |
@@ -76,10 +76,10 @@ the recovery procedure if the deployment drifts again.
 5. Create and publish the Vercel Firewall rate-limit rule described below.
 6. Trigger a new deployment of the latest `main`. Environment-variable changes
    affect only new deployments, so an existing deployment must be redeployed.
-7. In **Settings → Domains**, confirm `bridgev1.vercel.app` targets the latest
+7. In **Settings → Domains**, confirm `try-lingua.vercel.app` targets the latest
    successful production deployment.
 8. **Outstanding.** Change the GitHub repository website field from the dead
-   `bridge-umber-chi` URL to `https://bridgev1.vercel.app`, and add a
+   `bridge-umber-chi` URL to `https://try-lingua.vercel.app`, and add a
    repository description and topics. These are GitHub settings, not Vercel
    ones, and require repository Admin access.
 
@@ -133,7 +133,7 @@ After a new production deployment, run:
 
 ```bash
 cd frontend
-npm run smoke:deployment -- https://bridgev1.vercel.app
+npm run smoke:deployment -- https://try-lingua.vercel.app
 ```
 
 The smoke command verifies the HTML shell, calls
