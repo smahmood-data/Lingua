@@ -6,8 +6,10 @@ bilingual subtitles. Auto Detect can learn the other language of the pair;
 users can also lock an explicit source and target.
 
 The structured-summary path exists on the local Express backend and is
-evaluated in [`eval/`](../eval). It is not wired into the product UI, and the
-Vercel deployment does not serve it.
+evaluated in [`eval/`](../eval). On `main` it is not wired into the product UI
+and Vercel does not serve it; `feat/end-of-conversation` (`PR #47`) adds a
+Vercel `POST /api/summarize` adapter and a history UI that persists transcripts
+to `localStorage`.
 
 ## System architecture and secure token flow
 
@@ -35,9 +37,11 @@ flowchart LR
     Express -.->|"Validated summary — no UI consumer yet"| Browser
 ```
 
-Local Vite proxies `/api/*` to Express. Production Vercel serves only
-`GET /api/live-token` from `frontend/api/live-token.ts`. `POST /api/summarize`
-and `GET /api/health` stay on `backend/`.
+Local Vite proxies `/api/*` to Express. Production Vercel on `main` serves only
+`GET /api/live-token` from `frontend/api/live-token.ts`; `POST /api/summarize`
+and `GET /api/health` stay on `backend/`. After `PR #47`, Vercel also serves
+`POST /api/summarize` from `frontend/api/summarize.ts`, aligned with the
+backend contract.
 
 ## Interpreter canvas
 
@@ -56,9 +60,13 @@ flowchart LR
     Ended -->|"Clear transcript"| Idle
 ```
 
-There is no summary screen. Ending a conversation leaves the in-memory
-transcript visible until the user starts again or clears it. Closing the tab
-discards it.
+On `main` there is no summary screen. Ending a conversation leaves the
+in-memory transcript visible until the user starts again or clears it; closing
+the tab discards it. After `PR #47`, ended transcripts are saved to
+`localStorage` (`lingua-session-history-v1`, capped at 50) and can be searched,
+exported, and summarized via `POST /api/summarize` in the selected language;
+use **Clear history** to remove them. History is local to the browser profile
+and not synced.
 
 Session states a person watching the microphone would name:
 `connecting`, `listening`, `translating`, `playing`, `stopped`, and `error`.
@@ -129,10 +137,13 @@ utterance.
 
 ## End-of-conversation summary flow
 
-This path is backend-only. The UI does not collect a transcript for summary,
-does not call `POST /api/summarize`, and has no summary cards. The diagram is
-the intended product flow once [#5](https://github.com/smahmood-data/Lingua/issues/5)
-is finished.
+On `main` this path is backend-only. The UI does not collect a transcript for
+summary, does not call `POST /api/summarize`, and has no summary cards. The
+diagram is the intended product flow once
+[#5](https://github.com/smahmood-data/Lingua/issues/5) is finished. After
+`PR #47` the UI collects the final transcript (language-based speaker labels,
+no A/B alternation), validates it, and calls `POST /api/summarize` on either
+runtime; Vercel parity is enforced.
 
 ```mermaid
 flowchart TD
@@ -149,9 +160,12 @@ flowchart TD
 
 > **Build status.** The `POST /api/summarize` endpoint, its schema validation,
 > and the scored benchmark in [`eval/`](../eval) are implemented and tested on
-> the local Express backend. Nothing in the UI calls the endpoint. Vercel does
-> not deploy it. Tracked in [#5](https://github.com/smahmood-data/Lingua/issues/5).
-> Provenance grounding of extracted facts is [#25](https://github.com/smahmood-data/Lingua/issues/25).
+> the local Express backend. On `main` nothing in the UI calls the endpoint and
+> Vercel does not deploy it. `PR #47` adds the UI and a Vercel adapter aligned
+> with the backend (validated transcript, schema-checked response,
+> anti-hallucination prompt, `Cache-Control: no-store`). Tracked in
+> [#5](https://github.com/smahmood-data/Lingua/issues/5). Provenance grounding
+> is [#25](https://github.com/smahmood-data/Lingua/issues/25).
 
 ### Summary response contract
 

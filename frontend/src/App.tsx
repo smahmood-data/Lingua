@@ -30,7 +30,7 @@ import {
 import { languageColor } from './languageDisplay'
 import { HistoryPanel } from './components/HistoryPanel'
 import { TranscriptPanel } from './components/TranscriptPanel'
-import { clearSavedSessions, deleteSavedSession, downloadText, formatTranscript, loadSavedSessions, saveSession, type SavedSession } from './lib/sessionHistory'
+import { clearSavedSessions, createSessionId, deleteSavedSession, downloadText, formatTranscript, loadSavedSessions, saveSession, type SavedSession } from './lib/sessionHistory'
 import './App.css'
 
 /** Which composition the canvas is in. */
@@ -156,7 +156,7 @@ export default function App() {
       (turn) => turn.sourceLanguage && !languageCodesMatch(turn.sourceLanguage, targetLanguage),
     )?.sourceLanguage
     const session: SavedSession = {
-      id: `${turns[0]?.createdAt ?? Date.now()}-${turns.length}`,
+      id: createSessionId(),
       createdAt: turns[0]?.createdAt ?? Date.now(),
       endedAt: Date.now(), sourceLanguage, targetLanguage,
       counterpartLanguage: (detectedCounterpart as SupportedLanguageCode | undefined) ?? counterpartLanguage,
@@ -327,12 +327,25 @@ export default function App() {
     setSelectedSession(session)
   }, [])
 
-  const currentSavedSession = sessions.find((session) => session.id === savedSessionId.current) ?? (mode === 'ended' && turns.length ? {
-    id: savedSessionId.current ?? 'current', createdAt: turns[0]?.createdAt ?? Date.now(), endedAt: Date.now(), sourceLanguage, targetLanguage, counterpartLanguage, turns,
-  } : null)
   const exportCurrent = useCallback(() => {
+    const liveFallback: SavedSession | null =
+      mode === 'ended' && turns.length
+        ? {
+            id: savedSessionId.current ?? 'current',
+            // oxlint-disable-next-line react/purity -- Date.now for ephemeral export snapshot only, not render output
+            createdAt: turns[0]?.createdAt ?? Date.now(),
+            // oxlint-disable-next-line react/purity -- same as above
+            endedAt: Date.now(),
+            sourceLanguage,
+            targetLanguage,
+            counterpartLanguage,
+            turns,
+          }
+        : null
+    // oxlint-disable-next-line react/refs -- reading current session id at interaction time
+    const currentSavedSession = sessions.find((session) => session.id === savedSessionId.current) ?? liveFallback
     if (currentSavedSession) downloadText(`lingua-${currentSavedSession.id}.md`, formatTranscript(currentSavedSession))
-  }, [currentSavedSession])
+  }, [counterpartLanguage, mode, sessions, sourceLanguage, targetLanguage, turns])
 
 
   const showConversation = mode !== 'idle' && turns.length > 0

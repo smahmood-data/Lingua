@@ -11,7 +11,9 @@ export function SummaryPanel({ session, onClose, onSaveSession }: { session: Sav
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     const cached = session.summaries?.[language]
+    // oxlint-disable-next-line react/set-state-in-effect -- sync cached summary into local state before fetching
     setResult(cached ?? null)
+    // oxlint-disable-next-line react/set-state-in-effect -- clear previous error for new language
     setError(null)
     if (cached) return
     const controller = new AbortController()
