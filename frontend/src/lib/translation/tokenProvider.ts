@@ -8,8 +8,12 @@ import type { SourceLanguageCode, SupportedLanguageCode } from './types'
  * This is the only file that knows the wire shape of `/api/live-token`. It is
  * written against the contract now provided by the merged issue #1 backend:
  *
- *   GET /api/live-token?target=en
- *   -> { token, expiresAt, newSessionExpiresAt, model, targetLanguage }
+ *   GET /api/live-token?source=auto&target=en
+ *   -> { token, expiresAt, newSessionExpiresAt, model,
+ *        sourceLanguage, targetLanguage, systemInstruction }
+ *
+ * Every field is required. A response missing any of them is rejected rather
+ * than used to start a session on a partial contract.
  *
  * The browser only ever holds the short-lived token this returns. The long-lived
  * `GEMINI_API_KEY` stays on the server and is never read here.

@@ -67,19 +67,29 @@ and is consumed through the `useTranslationSession` hook:
 import { useTranslationSession } from './hooks/useTranslationSession'
 
 const {
-  state, error, transcript, interimTranscript,
-  isActive, targetLanguage, start, setTargetLanguage, stop, clearTranscript,
+  state, error, turns, interimTranscript, isActive,
+  sourceLanguage, targetLanguage, counterpartLanguage,
+  idleWarningEndsAt, idleTimeoutEndedAt,
+  start, setSourceLanguage, setTargetLanguage, setLanguages,
+  stop, clearTranscript,
 } = useTranslationSession()
 ```
 
-- `state` is `connecting`, `listening`, `translating`, `stopped`, or `error`.
+- `state` is `connecting`, `listening`, `translating`, `playing`, `stopped`, or
+  `error`. `translating` and `playing` are deliberately separate: only `playing`
+  means translated speech is physically coming out of the speakers.
 - `error` is `null` or `{ code, message, recoverable, retryAfterSeconds? }`. `code` is always one of
   the values in `SESSION_ERROR_CODES` — never a raw browser error code — so it is
   safe to switch on for UI copy and retry guidance.
-- `transcript` holds finalised turns: `{ id, kind, text, languageCode, isFinal }`.
-  `kind` is `source` for what was heard and `translation` for what was spoken
-  back. Each finalised transcription the API sends becomes its own turn; nothing
-  is invented locally.
+- `turns` holds the conversation as bilingual turns:
+  `{ id, sourceLanguage, sourceText, targetLanguage, translatedText, status, createdAt }`.
+  One turn carries both sides of the same utterance — what the speaker said and
+  what the other person hears — rather than one row per direction. The language
+  fields are `null` until the route that owns the turn has identified them, and
+  `translatedText` stays empty when nothing had to be interpreted (someone
+  already speaking the target language). Nothing is invented locally.
+- `counterpartLanguage` is the other language of the pair once Auto Detect has
+  learned it, and `null` before that.
 - `interimTranscript` is `{ text, languageCode }` or `null` — the speculative
   partial caption while someone is still speaking. It is replaced as they talk
   and cleared once the finalised turn for that speech arrives. Render it as a
@@ -108,17 +118,29 @@ is never read by frontend code. `vite.config.ts` proxies `/api` to
 the same route as a serverless function when the Vercel project root is this
 `frontend` directory. Set `GEMINI_API_KEY` in Vercel's server-side environment settings;
 no frontend environment variable is needed. The deployed function also requires
-the `lingua-live-token` Vercel Firewall rule documented in the root
-[live-token abuse-protection section](../README.md#live-token-abuse-protection);
-without that rule, token creation fails closed with HTTP 503.
+the `lingua-live-token` Vercel Firewall rule documented in
+[`docs/SECURITY.md`](../docs/SECURITY.md); without that rule, token creation
+fails closed with HTTP 503.
 
 `src/lib/translation/tokenProvider.ts` is the only frontend file that knows the
 wire shape. It consumes the merged issue #1 contract:
 
 ```
-GET /api/live-token?target=en
--> { token, expiresAt, newSessionExpiresAt, model, targetLanguage }
+GET /api/live-token?source=auto&target=en
+-> {
+     token,                 // must start with "auth_tokens/"
+     expiresAt,             // ISO 8601; when the token itself dies
+     newSessionExpiresAt,   // ISO 8601; deadline to *open* the session
+     model,
+     sourceLanguage,        // echoed back, "auto" or a BCP-47 code
+     targetLanguage,
+     systemInstruction,     // the interpreter prompt the token is bound to
+   }
 ```
+
+All seven fields are required: the provider rejects a response missing any of
+them rather than starting a session on a partial contract. Responses are sent
+with `Cache-Control: no-store`.
 
 The Express backend still accepts legacy direction parameters for compatibility.
 The `token` value must
@@ -144,22 +166,43 @@ The merged contract and configuration now line up:
 
 ### Manual test
 
-A developer harness is available at `http://localhost:5173/?live=1`. It is
-compiled out of production builds and should be removed once the interpreter UI
-in issue #4 can drive a session. Headphones are recommended so the translated
-audio is not picked up by the microphone again.
+Drive the real interpreter screen at `http://localhost:5173`. A lower-level
+harness also exists at `/?live=1`; it is compiled out of production builds and
+is only useful for isolating the audio pipeline from the UI.
+
+Headphones are strongly recommended. Barge-in is disabled, so translated audio
+played through speakers is suppressed rather than misread as speech — but
+headphones keep the test honest.
+
+**A normal two-way conversation (English ↔ Bengali).** This is the path that
+matters; test it before anything else.
 
 1. Start `../backend` with a valid `GEMINI_API_KEY`, then run `npm run dev` here.
-2. Open `/?live=1` and select **Start session**.
-3. Leave the target on **English**, grant microphone access, and speak a short
-   Urdu, French, Chinese, or Spanish phrase. Confirm English audio plays and the
-   detected source language is labelled in the transcript.
-4. Change the target to **Urdu** while active and confirm the session stops and
-   the browser microphone indicator clears.
-5. Start again, speak a short English phrase, and confirm Urdu audio and
-   English/Urdu transcript lines appear.
-6. Stop and start again to confirm retry works without reloading.
-7. Block microphone access and confirm a recoverable error is shown.
+2. Leave the source on **Auto-detect** and the target on **English**. Grant
+   microphone access and start the conversation.
+3. Speak a short **Bengali** phrase. Confirm English audio plays, the turn is
+   labelled Bengali, and the masthead pair fills in once Auto Detect has learned
+   the counterpart.
+4. **Watch the state complete.** While the English translation is audible the
+   microphone shows `playing`; when the audio physically finishes it must return
+   to `listening` on its own. A session that stays in `playing` after the
+   speakers have gone quiet is the regression `traceRegression.test.ts` exists
+   for.
+5. Reply in **English** without touching any control. Confirm Bengali audio
+   plays and a second turn appears with the languages the other way round. Two
+   consecutive turns in both directions is the real acceptance test.
+6. Confirm neither speaker had to pick a language or switch a direction.
+
+**Edge cases.**
+
+7. Speak English while the target is English and confirm the interpreter stays
+   silent rather than reading it back.
+8. Change the target language mid-session and confirm the session stops cleanly
+   and the browser microphone indicator clears.
+9. Stop and start again to confirm retry works without reloading.
+10. Block microphone access and confirm a recoverable error is shown.
+11. Leave the session idle and confirm the warning appears before it ends
+    itself.
 
 ### Live diagnostic trace
 
