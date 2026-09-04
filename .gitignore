@@ -8,6 +8,9 @@ node_modules/
 dist/
 coverage/
 
+# Vercel
+.vercel/
+
 # Logs
 *.log
 

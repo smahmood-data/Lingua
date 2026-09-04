@@ -28,6 +28,9 @@ import {
   type SupportedLanguageCode,
 } from './types'
 import { languageColor } from './languageDisplay'
+import { HistoryPanel } from './components/HistoryPanel'
+import { TranscriptPanel } from './components/TranscriptPanel'
+import { clearSavedSessions, createSessionId, deleteSavedSession, downloadText, formatTranscript, loadSavedSessions, saveSession, type SavedSession } from './lib/sessionHistory'
 import './App.css'
 
 /** Which composition the canvas is in. */
@@ -116,6 +119,10 @@ export default function App() {
   // The session keeps its committed history across a stop, so the conversation
   // stays on screen by itself: nothing here needs to copy or retain it.
   const [transition, setTransition] = useState<Transition>(null)
+  const [sessions, setSessions] = useState<SavedSession[]>(() => loadSavedSessions())
+  const [panel, setPanel] = useState<'history' | 'transcript' | null>(null)
+  const [selectedSession, setSelectedSession] = useState<SavedSession | null>(null)
+  const savedSessionId = useRef<string | null>(null)
 
   const shellRef = useRef<HTMLDivElement>(null)
   const heroSlotRef = useRef<HTMLDivElement>(null)
@@ -142,6 +149,22 @@ export default function App() {
   const mode: AppMode = live ? 'session' : turns.length > 0 ? 'ended' : 'idle'
   const micPhase = toMicPhase(state, Boolean(error), transition, mode)
   const leftCode = leftLanguage(sourceLanguage, counterpartLanguage)
+
+  useEffect(() => {
+    if (mode !== 'ended' || !turns.length || savedSessionId.current) return
+    const detectedCounterpart = turns.find(
+      (turn) => turn.sourceLanguage && !languageCodesMatch(turn.sourceLanguage, targetLanguage),
+    )?.sourceLanguage
+    const session: SavedSession = {
+      id: createSessionId(),
+      createdAt: turns[0]?.createdAt ?? Date.now(),
+      endedAt: Date.now(), sourceLanguage, targetLanguage,
+      counterpartLanguage: (detectedCounterpart as SupportedLanguageCode | undefined) ?? counterpartLanguage,
+      turns,
+    }
+    savedSessionId.current = session.id
+    setSessions(saveSession(session))
+  }, [counterpartLanguage, mode, sourceLanguage, targetLanguage, turns])
 
   // While Lingua speaks, the turn being spoken owns the mic and waveform colour.
   const playbackTarget =
@@ -278,14 +301,52 @@ export default function App() {
   )
 
   const handleMicClick = useCallback(() => {
+    if (!isActive && mode === 'ended') {
+      savedSessionId.current = null
+      clearTranscript()
+    }
     void runTransition(isActive ? 'stop' : 'start', () =>
       isActive ? stop() : start(sourceLanguage, targetLanguage),
     )
-  }, [isActive, runTransition, sourceLanguage, start, stop, targetLanguage])
+  }, [clearTranscript, isActive, mode, runTransition, sourceLanguage, start, stop, targetLanguage])
 
   const handleNewSession = useCallback(() => {
+    savedSessionId.current = null
+    clearTranscript()
+    setPanel(null)
     void runTransition('start', () => start(sourceLanguage, targetLanguage))
-  }, [runTransition, sourceLanguage, start, targetLanguage])
+  }, [clearTranscript, runTransition, sourceLanguage, start, targetLanguage])
+
+  const handleClear = useCallback(() => {
+    savedSessionId.current = null
+    clearTranscript()
+  }, [clearTranscript])
+
+  const handleSaveSummary = useCallback((session: SavedSession) => {
+    setSessions(saveSession(session))
+    setSelectedSession(session)
+  }, [])
+
+  const exportCurrent = useCallback(() => {
+    const liveFallback: SavedSession | null =
+      mode === 'ended' && turns.length
+        ? {
+            id: savedSessionId.current ?? 'current',
+            // oxlint-disable-next-line react/purity -- Date.now for ephemeral export snapshot only, not render output
+            createdAt: turns[0]?.createdAt ?? Date.now(),
+            // oxlint-disable-next-line react/purity -- same as above
+            endedAt: Date.now(),
+            sourceLanguage,
+            targetLanguage,
+            counterpartLanguage,
+            turns,
+          }
+        : null
+    // oxlint-disable-next-line react/refs -- reading current session id at interaction time
+    const currentSavedSession = sessions.find((session) => session.id === savedSessionId.current) ?? liveFallback
+    if (currentSavedSession) downloadText(`lingua-${currentSavedSession.id}.md`, formatTranscript(currentSavedSession))
+  }, [counterpartLanguage, mode, sessions, sourceLanguage, targetLanguage, turns])
+
 
   const showConversation = mode !== 'idle' && turns.length > 0
 
@@ -297,6 +358,7 @@ export default function App() {
         rightCode={targetLanguage}
         theme={theme}
         onToggleTheme={toggleTheme}
+        onHistory={() => setPanel('history')}
       />
 
       {error ? (
@@ -344,7 +406,8 @@ export default function App() {
           dockSlotRef={dockSlotRef}
           busy={transition !== null}
           onNewSession={handleNewSession}
-          onClear={clearTranscript}
+          onClear={handleClear}
+          onExport={exportCurrent}
           newSessionRef={newSessionRef}
           clearRef={clearRef}
         />
@@ -358,6 +421,8 @@ export default function App() {
         buttonRef={micRef}
         onClick={handleMicClick}
       />
+      {panel === 'history' ? <HistoryPanel sessions={sessions} onClose={() => setPanel(null)} onClear={() => { clearSavedSessions(); setSessions([]) }} onDelete={(session) => { setSessions(deleteSavedSession(session.id)); if (selectedSession?.id === session.id) setSelectedSession(null) }} onSelect={(session) => { setSelectedSession(session); setPanel('transcript') }} /> : null}
+      {panel === 'transcript' && selectedSession ? <TranscriptPanel key={selectedSession.id} session={selectedSession} onClose={() => setPanel(null)} onSaveSession={handleSaveSummary} /> : null}
     </div>
   )
 }

@@ -1,0 +1,24 @@
+.history-panel, .summary-panel {
+  position: absolute; z-index: 40; inset-block: 0; inset-inline-end: 0;
+  width: min(440px, 100%); padding: 28px 24px; overflow-y: auto;
+  background: var(--paper-raised); border-inline-start: 1px solid var(--line);
+  box-shadow: var(--lift-menu); animation: panel-in 220ms var(--ease-out);
+}
+.panel-heading { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+.panel-heading h2 { margin-top: 2px; font-family: var(--font-brand); font-size: 1.8rem; font-weight: 600; }
+.eyebrow { color: var(--accent-ink); font-size: .7rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+.panel-close { border: 0; background: transparent; color: var(--ink-mute); font-size: 1.7rem; line-height: 1; }
+.history-search { display: flex; gap: 9px; align-items: center; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-m); color: var(--ink-mute); }
+.history-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink); }
+.history-list { margin-top: 18px; }
+.clear-history { margin-top: 12px; border: 0; background: transparent; color: var(--danger-ink); font-size: .76rem; font-weight: 700; }
+.history-item { display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 5px; padding: 15px 2px; border-bottom: 1px solid var(--line); color: var(--ink); text-align: start; }
+.history-item-open { padding: 0; border: 0; background: transparent; color: var(--ink); text-align: start; }
+.history-item-open:hover strong { color: var(--accent-ink); }
+.history-item strong { font-size: .92rem; font-weight: 650; }
+.history-item > span:last-child { color: var(--ink-mute); font-size: .75rem; }
+.history-item > span:last-child span { color: var(--accent-ink); cursor: pointer; }
+.history-delete { padding: 0; border: 0; background: transparent; color: var(--danger-ink); font: inherit; cursor: pointer; }
+.history-date { color: var(--ink-mute); font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.history-empty, .summary-loading, .summary-error, .muted { color: var(--ink-mute); font-size: .9rem; }
+@keyframes panel-in { from { opacity: 0; translate: 16px 0; } to { opacity: 1; translate: 0 0; } }

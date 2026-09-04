@@ -1,0 +1,16 @@
+.transcript-panel {
+  position: absolute; z-index: 40; inset-block: 0; inset-inline-end: 0;
+  width: min(520px, 100%); padding: 28px 24px; overflow-y: auto;
+  background: var(--paper-raised); border-inline-start: 1px solid var(--line);
+  box-shadow: var(--lift-menu); animation: panel-in 220ms var(--ease-out);
+}
+.transcript-meta { color: var(--ink-mute); font-size: .78rem; margin-bottom: 22px; }
+.transcript-copy { border-top: 1px solid var(--line); }
+.transcript-turn { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.transcript-turn p { color: var(--ink); font-size: .94rem; line-height: 1.55; }
+.transcript-turn .transcript-speaker { margin-bottom: 5px; color: var(--accent-ink); font-size: .72rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.transcript-turn .transcript-translation { margin-top: 8px; color: var(--ink-mute); font-size: .86rem; }
+.transcript-actions { display: flex; gap: 9px; padding-top: 22px; }
+.primary-panel-action, .secondary-panel-action { padding: 10px 14px; border-radius: var(--radius-pill); font-size: .8rem; font-weight: 700; }
+.primary-panel-action { border: 1px solid var(--accent); background: var(--accent); color: var(--mic-ink); }
+.secondary-panel-action { border: 1px solid var(--line-strong); background: transparent; color: var(--ink-soft); }

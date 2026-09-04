@@ -35,11 +35,13 @@ history, not remaining work.
 ## Partial
 
 - **Structured summary.** `POST /api/summarize` and the evaluation harness in
-  [`eval/`](../eval) exist and are tested. Nothing in the UI calls them, and
-  Vercel does not serve the route. Finishing the product path is
+  [`eval/`](../eval) exist and are tested. On `main` nothing in the UI calls
+  them and Vercel does not serve the route; `PR #47` adds the UI, `localStorage`
+  history, and a Vercel `POST /api/summarize` adapter aligned with the backend
+  contract. Finishing the product path is
   [#5](https://github.com/smahmood-data/Lingua/issues/5). Provenance grounding
   is [#25](https://github.com/smahmood-data/Lingua/issues/25). Persistent
-  history is not a prerequisite.
+  history is not a prerequisite for the summary.
 - **Barge-in.** Implemented and unit-tested, shipped disabled
   (`BARGE_IN_ENABLED = false`). The echo gate false-triggered on continued
   speech and speaker residue in recorded sessions. Re-enable or redesign after
@@ -68,6 +70,11 @@ parallel with [#29](https://github.com/smahmood-data/Lingua/issues/29).
 [#28](https://github.com/smahmood-data/Lingua/issues/28) depends on #29.
 [#5](https://github.com/smahmood-data/Lingua/issues/5) does not depend on
 [#36](https://github.com/smahmood-data/Lingua/issues/36).
+
+> **PR #47 note:** `PR #47` (`feat/end-of-conversation`) implements [#5],
+> [#36], and [#37] on this branch with `localStorage` persistence and Vercel
+> summary parity, pending final review. The language-based attribution limitation
+> (no diarization) remains and is documented in `ARCHITECTURE.md`.
 
 ## Deferred
 

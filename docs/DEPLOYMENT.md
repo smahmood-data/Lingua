@@ -98,8 +98,10 @@ the recovery procedure if the deployment drifts again.
 | `VITE_LIVE_IDLE_WARNING_SECONDS` | Optional public build-time warning lead; not a secret. |
 
 `LIVE_TOKEN_RATE_LIMIT_MAX` and `TRUST_PROXY_HOPS` belong to the local Express
-service, not the Vercel Function. `GEMINI_SUMMARY_MODEL` is also unnecessary for
-the current Vercel project because it does not deploy `/api/summarize`.
+service, not the Vercel Function. On `main` `GEMINI_SUMMARY_MODEL` is unnecessary
+for Vercel because it does not deploy `/api/summarize`; after `PR #47` Vercel
+uses it for the new `frontend/api/summarize.ts` adapter, so set it alongside
+`GEMINI_API_KEY` when that change is live.
 
 ## Required Vercel Firewall rule
 
